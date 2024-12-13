@@ -56,9 +56,9 @@ impl TLSVersion {
 
 impl TLSStream {
     pub fn establish(mut stream: TcpStream)->Result<TLSStream, ServerError> {
-        
-        TLSVersion::cast()
+        let message = TLSVersion::cast(stream);
 
+        
         Ok(TLSStream{
 
         })
@@ -71,7 +71,7 @@ struct TLSRecordMessage {
 }
 
 impl TLSRecordMessage {
-    fn from(mut stream: TcpStream, )->TLSRecordMessage {
+    fn from(mut stream: TcpStream)->TLSRecordMessage {
         let mut main: [u8; 5] = [0;5];
         match stream.read(&mut main) {
             Ok(read) if read == 5=>(),
@@ -117,27 +117,32 @@ impl TLSPayload {
         }
     }
 }
+
 struct TLSHandshake {
     kind: TLSHandshakeType,
-    
+    payload: TLSHandshakePayload,
 }
 
-enum TLSHandshakeType {
-    HelloRequest = 0,
-    ClientHello = 1,
-    ServerHello = 2,
-    Certificate = 11,
-    ServerKeyExchange = 12,
-    CertificateRequest = 13,
-    ServerHelloDone = 14,
-    CertificateVerify = 15,
-    ClientKeyExchange = 16,
-    Finished = 20
+mod Handshake {
+    enum TLSHandshakeType {
+        HelloRequest() = 0,
+        ClientHello = 1,
+        ServerHello = 2,
+        Certificate = 11,
+        ServerKeyExchange = 12,
+        CertificateRequest = 13,
+        ServerHelloDone = 14,
+        CertificateVerify = 15,
+        ClientKeyExchange = 16,
+        Finished = 20
+    }
 }
 
 mod tls_1_0 {
     fn to_handshake(buf: &[u8])->Result<TLSPayload, ServerError> {
         let kind: TLSHandshakeType = buf[0];
+        let length: u32 = u32::from_be_bytes([0, buf[1] , buf[2], buf[3]]);
+        
         
     }
     
