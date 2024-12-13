@@ -4,12 +4,9 @@ use crate::server::ServerError;
 
 
 pub struct TLSStream {
-    protocol: TLSProtocol,
-    version: TLSVersion,
-}
-
-pub struct TLSAda {
-    layer: TLSProtocol,
+    stream: TcpStream,
+    def_version: TLSVersion,
+    cur_buf: Vec<u8>,
 }
 
 enum TLSProtocol {
@@ -29,6 +26,13 @@ impl From<u8> for TLSProtocol {
     }
 }
 
+enum TLSVersion {
+    TLS1_0 = 1,
+    TLS1_1 = 2,
+    TLS1_2 = 3,
+    TLS1_3 = 4
+}
+
 impl From<u8> for TLSVersion {
     fn from(value: u8) -> Self {
         if value >= 20 && value < 24 {
@@ -37,13 +41,6 @@ impl From<u8> for TLSVersion {
             panic!("Wrong TLSVersion Parameter")
         }
     }
-}
-
-enum TLSVersion {
-    TLS1_0 = 1,
-    TLS1_1 = 2,
-    TLS1_2 = 3,
-    TLS1_3 = 4
 }
 
 impl TLSVersion {
@@ -56,8 +53,25 @@ impl TLSVersion {
 }
 
 
+
 impl TLSStream {
     pub fn establish(mut stream: TcpStream)->Result<TLSStream, ServerError> {
+        
+        TLSVersion::cast()
+
+        Ok(TLSStream{
+
+        })
+    }
+}
+struct TLSRecordMessage {
+    protocol: TLSProtocol,
+    version: TLSVersion,
+    content: TLSPayload
+}
+
+impl TLSRecordMessage {
+    fn from(mut stream: TcpStream, )->TLSRecordMessage {
         let mut main: [u8; 5] = [0;5];
         match stream.read(&mut main) {
             Ok(read) if read == 5=>(),
@@ -69,18 +83,18 @@ impl TLSStream {
         let protocol: TLSProtocol = main[0].into();
         let version: TLSVersion = TLSVersion::cast(main[1], main[2])?;
         let length: u16 = u16::from_be_bytes([main[3], main[4]]);
-
-        TLSPayload::cast()
-
-        Ok(TLSStream{
-
-        })
+        let mut buf = Vec::with_cappacity(length as usize);
+        match stream.read_exact(&mut buf) {
+            Ok(read) if read == length as usize=>(),
+            _=>return Err(ServerError::CONERR),
+        }
+        let payload: TLSPayload = TLSPayload::to_payload()?;
+        TLSRecordMessage{
+            protocol: protocol,
+            version: version,
+            content: payload,
+        }
     }
-}
-struct TLSRecord {
-    protocol: TLSProtocol,
-    version: TLSVersion,
-    content: TLSPayload
 }
 
 enum TLSPayload {
@@ -91,14 +105,18 @@ enum TLSPayload {
 }
 
 impl TLSPayload {
-    fn cast(kind: TLSProtocol, buf: &[u8])->TLSPayload {
-        match kind {
-            TLSProtocol::Handshake=>TLSHandshake::cast(),
-            _=>todo!("Not impl")
+    fn to_payload(kind: TLSProtocol, version: TLSVersion, buf: &[u8])->Result<TLSPayload, ServerError> {
+        match version {
+            TLSVersion::TLS1_0=>{
+                match kind {
+                    TLSProtocol::Handshake=>tls_1_0::to_handshake(buf),
+                    _=>todo!(),
+                }
+            },
+            _=>todo!(),
         }
     }
 }
-
 struct TLSHandshake {
     kind: TLSHandshakeType,
     
@@ -115,4 +133,12 @@ enum TLSHandshakeType {
     CertificateVerify = 15,
     ClientKeyExchange = 16,
     Finished = 20
+}
+
+mod tls_1_0 {
+    fn to_handshake(buf: &[u8])->Result<TLSPayload, ServerError> {
+        let kind: TLSHandshakeType = buf[0];
+        
+    }
+    
 }
