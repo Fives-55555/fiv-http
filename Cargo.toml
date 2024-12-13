@@ -1,0 +1,12 @@
+[package]
+name = "fiv-http"
+version = "0.1.0"
+edition = "2021"
+
+[net]
+git-fetch-with-cli=true
+
+[dependencies]
+#fiv-log={git = "ssh://github.com/Fives-55555/fiv-log.git"}
+#fiv={git="ssh://github.com/Fives-55555/fiv-lib.git"}
+#rand="0.8.5"
