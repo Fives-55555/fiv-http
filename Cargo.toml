@@ -7,6 +7,7 @@ edition = "2021"
 git-fetch-with-cli=true
 
 [dependencies]
+fiv-mac={path = "C:\\Users\\linus\\Documents\\GitHub\\fiv-mac"}
 #fiv-log={git = "ssh://github.com/Fives-55555/fiv-log.git"}
 #fiv={git="ssh://github.com/Fives-55555/fiv-lib.git"}
 #rand="0.8.5"

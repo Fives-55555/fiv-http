@@ -1,4 +1,7 @@
-use super::{handshake::{Client, TLSHandshakePayload, TLSHandshakeType}, TLSPayload, TLSProtocol, TLSVersion, MAX_VERSION};
+use super::{
+    handshake::{Client, TLSHandshakePayload, TLSHandshakeType},
+    TLSPayload, TLSProtocol, TLSVersion, MAX_VERSION,
+};
 use crate::server::ServerError;
 
 pub fn to_payload(kind: TLSProtocol, buf: &[u8]) -> Result<TLSPayload, ServerError> {
@@ -13,7 +16,7 @@ pub fn to_payload(kind: TLSProtocol, buf: &[u8]) -> Result<TLSPayload, ServerErr
 fn to_handshake(buf: &[u8]) -> Result<TLSPayload, ServerError> {
     let kind: TLSHandshakeType = TLSHandshakeType::cast(buf[0])?;
     let length: usize = u32::from_be_bytes([0, buf[1], buf[2], buf[3]]) as usize;
-    if buf.len() - 4 !=  length {
+    if buf.len() - 4 != length {
         return Err(ServerError::INVPAR);
     };
     let mut buf: &[u8] = &buf[4..];
@@ -21,16 +24,12 @@ fn to_handshake(buf: &[u8]) -> Result<TLSPayload, ServerError> {
         TLSHandshakeType::ClientHello => {
             let max_version: TLSVersion = match TLSVersion::cast(buf[0], buf[1]) {
                 Ok(suppored) => suppored,
-                Err(err) => {
-                    match err {
-                        ServerError::VERHIGH=>{
-                            MAX_VERSION
-                        },
-                        ServerError::VERLOW=>{
-                            return Err(ServerError::VERLOW);
-                        }
+                Err(err) => match err {
+                    ServerError::VERHIGH => MAX_VERSION,
+                    ServerError::VERLOW => {
+                        return Err(ServerError::VERLOW);
                     }
-                }
+                },
             };
             let client_random: &[u8] = &buf[2..34];
             let session_id_len: usize = buf[34] as usize;
@@ -57,14 +56,14 @@ fn to_handshake(buf: &[u8]) -> Result<TLSPayload, ServerError> {
             };
             index += cipher_len;
 
-            TLSHandshakePayload::ClientHello(Client{
+            TLSHandshakePayload::ClientHello(Client {
                 version: max_version,
                 random: client_random,
                 session: sessino_id,
                 ciphers: cipher_list,
-                compresion: compression
+                compresion: compression,
             })
-        },
+        }
         _ => todo!(),
     };
     return Ok(TLSPayload::Handshake(inner));

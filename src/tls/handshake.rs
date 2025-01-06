@@ -53,46 +53,28 @@ pub(super) enum TLSHandshakePayload {
     Finished(Fine),
 }
 
-struct Hello {
-    
-}
+struct Hello {}
 
 pub(super) struct Client {
     pub(super) version: TLSVersion,
-    pub(super) random: [u8;32],
+    pub(super) random: [u8; 32],
     pub(super) session: Option<Vec<u8>>,
     pub(super) ciphers: Vec<Cipher>,
     pub(super) compresion: Vec<Compression>,
 }
 
-struct Server {
+struct Server {}
 
-}
+struct Cert {}
 
-struct Cert {
+struct SerEx {}
 
-}
+struct CertReq {}
 
-struct SerEx {
+struct Done {}
 
-}
+struct CertVeri {}
 
-struct CertReq {
+struct CliEx {}
 
-}
-
-struct Done {
-
-}
-
-struct CertVeri {
-
-}
-
-struct CliEx {
-
-}
-
-struct Fine {
-
-}
+struct Fine {}

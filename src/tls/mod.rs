@@ -129,24 +129,20 @@ impl TLSPayload {
 /// Add if wanted
 enum Compression {
     Null = 0,
-
 }
 
-enum Cipher {
-
-}
+enum Cipher {}
 
 enum Certificate {
-    RSA, 
+    RSA,
 }
 
 enum MACAlgo {
     MMD5,
-    SHA1
+    SHA1,
 }
 
 struct CipherSuite {
     certificate: Certificate,
     mac: MACAlgo,
-
 }
