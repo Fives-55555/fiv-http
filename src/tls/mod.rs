@@ -131,7 +131,25 @@ enum Compression {
     Null = 0,
 }
 
+impl Compression {
+    fn from(from: &u8)->Result<Compression, ServerError> {
+        todo!();
+    }
+    fn from_slice(&buf: &[u8])->Result<Vec<Compression>, ServerError> {
+        buf.bytes().map(|bytes|Compression::from(bytes)).collect()
+    }
+}
+
 enum Cipher {}
+
+impl Cipher {
+    fn from(from: &u8)->Result<Compression, ServerError> {
+        todo!();
+    }
+    fn from_slice(&buf: &[u8])->Result<Vec<Compression>, ServerError> {
+        buf.bytes().map(|bytes|Compression::from(bytes)).collect()
+    }
+}
 
 enum Certificate {
     RSA,
