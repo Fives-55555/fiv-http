@@ -63,7 +63,13 @@ pub(super) struct Client {
     pub(super) compresion: Vec<Compression>,
 }
 
-struct Server {}
+pub(super) struct Server {
+    pub(super) version: TLSVersion,
+    pub(super) random: [u8; 32],
+    pub(super) session: Option<Vec<u8>>,
+    pub(super) cipher: Cipher,
+    pub(super) compression: Compression,
+}
 
 struct Cert {}
 
