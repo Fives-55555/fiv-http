@@ -21,12 +21,8 @@ pub(super) enum TLSHandshakeType {
 }
 
 impl From<u8> for TLSHandshakeType {
-    fn from(value: u8) -> Self {
-        if value < 3 || (value > 10 && value < 17) || value == 20 {
-            unsafe { std::mem::transmute::<u8, TLSHandshakeType>(value) }
-        } else {
-            panic!("Wrong TLSHandshakeType Parameter")
-        }
+    unsafe fn from(value: u8) -> Self {
+        std::mem::transmute::<u8, TLSHandshakeType>(value)
     }
 }
 

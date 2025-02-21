@@ -22,7 +22,7 @@ enum TLSProtocol {
 }
 
 impl From<u8> for TLSProtocol {
-    fn from(value: u8) -> Self {
+    unsafe fn from(value: u8) -> Self {
         if value >= 20 && value < 24 {
             unsafe { std::mem::transmute::<u8, TLSProtocol>(value) }
         } else {
@@ -132,22 +132,22 @@ enum Compression {
 }
 
 impl Compression {
-    fn from(from: &u8)->Result<Compression, ServerError> {
+    fn from(from: &u8) -> Result<Compression, ServerError> {
         todo!();
     }
-    fn from_slice(&buf: &[u8])->Result<Vec<Compression>, ServerError> {
-        buf.bytes().map(|bytes|Compression::from(bytes)).collect()
+    fn from_slice(&buf: &[u8]) -> Result<Vec<Compression>, ServerError> {
+        buf.bytes().map(|bytes| Compression::from(bytes)).collect()
     }
 }
 
 enum Cipher {}
 
 impl Cipher {
-    fn from(from: &u8)->Result<Compression, ServerError> {
+    fn from(from: &u8) -> Result<Compression, ServerError> {
         todo!();
     }
-    fn from_slice(&buf: &[u8])->Result<Vec<Compression>, ServerError> {
-        buf.bytes().map(|bytes|Compression::from(bytes)).collect()
+    fn from_slice(&buf: &[u8]) -> Result<Vec<Compression>, ServerError> {
+        buf.bytes().map(|bytes| Compression::from(bytes)).collect()
     }
 }
 
