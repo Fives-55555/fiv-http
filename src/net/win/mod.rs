@@ -6,6 +6,7 @@ macro_rules! io_err {
     };
 }
 
+pub mod rio;
 pub mod net;
 pub mod iocp;
 pub mod overlapped;
