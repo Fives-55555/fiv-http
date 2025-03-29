@@ -89,7 +89,7 @@ impl RIOBuffer {
         })
     }
     pub fn get_whole(&mut self) -> Option<RIOBufferSlice> {
-        if self.0.borrow().alloc == 0 {
+        if self.0.borrow_mut().alloc == 0 {
             return Some(RIOBufferSlice::from_buf(self.0.borrow_mut()));
         }
         None
