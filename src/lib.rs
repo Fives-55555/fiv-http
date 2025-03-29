@@ -1,3 +1,6 @@
+#![feature(slice_index_methods)]
+
+
 pub mod net;
 //pub mod site;
 //pub mod uri;

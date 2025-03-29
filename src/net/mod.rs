@@ -15,10 +15,6 @@ pub fn init() {
     INIT.call_once(|| drop(std::net::UdpSocket::bind("127.0.0.1:0")));
 }
 
-pub trait Subscribe {
-    fn sub(&self) -> std::io::Result<()>;
-}
-
 pub trait Wait {
     type Output;
     fn wait(&self, timeout: OSTimeout) -> Poll<Self::Output>;
@@ -34,10 +30,6 @@ pub use win::overlapped::OverlappedTcpListener;
 pub use win::overlapped::OverlappedTcpStream;
 pub use win::FutAsyncRead;
 
-pub trait AsyncRead {
-    fn read(&self, buf: &mut [u8]) -> FutAsyncRead;
+pub struct IOStream {
+    
 }
-
-pub trait AsyncWrite {}
-
-

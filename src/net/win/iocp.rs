@@ -1,93 +1,116 @@
-use std::{future::Future, ptr::null_mut, task::Poll};
 use windows::Win32::{
     Foundation::{HANDLE, INVALID_HANDLE_VALUE},
-    System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED},
+    System::IO::{CreateIoCompletionPort, OVERLAPPED},
 };
 
-/// Threadammount can only be set at construction
-#[derive(Debug)]
-pub struct IOCompletionPort {
-    handle: HANDLE, // Multiple Types of io
-}
+use std::os::windows::prelude::{AsRawHandle, RawHandle};
 
-impl IOCompletionPort {
-    pub fn new(threads: u32) -> std::io::Result<IOCompletionPort> {
+#[cfg(not(feature = "multithreaded"))]
+use std::rc::Rc;
+#[cfg(feature = "multithreaded")]
+use std::sync::Arc;
+
+/// Threadammount can only be set at construction
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct IOCP(HANDLE);
+
+impl IOCP {
+    pub const THREADS: u32 = 0;
+    pub fn new() -> std::io::Result<IOCP> {
         unsafe {
-            match CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, threads) {
-                Ok(handle) => Ok(IOCompletionPort { handle: handle }),
+            match CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, Self::THREADS) {
+                Ok(handle) => Ok(IOCP(handle)),
                 Err(err) => io_err!(err),
             }
         }
     }
-}
-
-impl IOCompletionPort {
-    pub fn from_handle(
+    pub fn add_entry(&self, overlapped: Option<OVERLAPPED>) -> IOCPEntry {
+        let overlapped = overlapped.unwrap_or(OVERLAPPED::default());
+        IOCPEntry {
+            iocp: *self,
+            #[cfg(feature = "multithreaded")]
+            overlapped: Arc::new(overlapped),
+            #[cfg(not(feature = "multithreaded"))]
+            overlapped: Rc::new(overlapped),
+        }
+    }
+    /// Creates a IOCompletionPort and registers a Handle in the IOCP which gets wraped in an Entry
+    pub fn from_handle<T: AsRawHandle>(
         threads: u32,
-        iohandle: HANDLE,
+        iohandle: T,
         ioid: usize,
-    ) -> std::io::Result<IOCompletionPort> {
+    ) -> std::io::Result<IOCPEntry> {
         unsafe {
-            match CreateIoCompletionPort(INVALID_HANDLE_VALUE, Some(iohandle), ioid, threads) {
-                Ok(handle) => Ok(IOCompletionPort { handle: handle }),
+            match CreateIoCompletionPort(HANDLE(iohandle.as_raw_handle()), None, ioid, threads) {
+                Ok(handle) => Ok(IOCPEntry {
+                    iocp: IOCP(handle),
+                    #[cfg(feature = "multithreaded")]
+                    overlapped: Arc::new(OVERLAPPED::default()),
+                    #[cfg(not(feature = "multithreaded"))]
+                    overlapped: Rc::new(OVERLAPPED::default()),
+                }),
                 Err(err) => io_err!(err),
             }
         }
+    }
+    pub fn handle(&self) -> HANDLE {
+        self.0
     }
     /// You need to provide a Id for the handle which gets associated to the IOCP
-    pub fn associate(&mut self, iohandle: HANDLE, ioid: usize) -> std::io::Result<()> {
+    pub fn associate<T: AsRawHandle>(&mut self, iohandle: T, ioid: usize) -> std::io::Result<()> {
         unsafe {
-            match CreateIoCompletionPort(iohandle, Some(self.handle), ioid, 0) {
+            match CreateIoCompletionPort(HANDLE(iohandle.as_raw_handle()), Some(self.0), ioid, 0) {
                 Ok(_) => Ok(()),
                 Err(err) => io_err!(err),
             }
         }
     }
-    pub fn change(self) -> IOCompletionPort {
-        IOCompletionPort {
-            handle: self.handle,
+}
+
+impl AsRawHandle for IOCP {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.0 .0
+    }
+}
+
+pub struct IOCPEntry {
+    iocp: IOCP,
+    #[cfg(feature = "multithreaded")]
+    overlapped: Arc<OVERLAPPED>,
+    #[cfg(not(feature = "multithreaded"))]
+    overlapped: Rc<OVERLAPPED>,
+}
+
+impl Clone for IOCPEntry {
+    fn clone(&self) -> Self {
+        IOCPEntry {
+            iocp: self.iocp,
+            overlapped: self.overlapped.clone(),
         }
     }
 }
 
-impl Future for IOCompletionPort {
-    type Output = std::io::Result<AsyncIoOut>;
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        unsafe {
-            let mut num: u32 = 0;
-            let mut key: usize = 0;
-            let mut x: *mut OVERLAPPED = null_mut();
-            match GetQueuedCompletionStatus(self.handle, &mut num, &mut key, &mut x, 0) {
-                Ok(_) => {
-                    return Poll::Ready(Ok(AsyncIoOut {
-                        ioid: key,
-                        len: num,
-                        overlapped: x,
-                    }))
-                }
-                Err(err) => return Poll::Ready(Err(std::io::Error::from(err))),
-            }
+impl AsRawHandle for IOCPEntry {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.iocp.0 .0
+    }
+}
+
+impl IOCPEntry {
+    pub fn new(iocp: IOCP) -> IOCPEntry {
+        IOCPEntry {
+            iocp: iocp,
+            overlapped: Rc::new(OVERLAPPED::default()),
         }
     }
-}
-
-pub struct AsyncIoOut {
-    ioid: usize,
-    len: u32,
-    overlapped: *mut OVERLAPPED,
-}
-
-impl AsyncIoOut {
-    pub fn id(&self) -> usize {
-        self.ioid
+    pub fn handle(&self) -> HANDLE {
+        self.iocp.0
     }
-    pub fn len(&self) -> usize {
-        self.len as usize
+    pub fn iocp(&self) -> IOCP {
+        self.iocp
     }
-    pub fn overlapped(&self) -> &mut OVERLAPPED {
-        unsafe { self.overlapped.as_mut().unwrap() }
+    pub fn overlapped(&self) -> Rc<OVERLAPPED> {
+        self.overlapped.clone()
     }
 }

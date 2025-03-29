@@ -5,13 +5,16 @@ use std::os::windows::io::IntoRawSocket;
 use std::pin::Pin;
 use std::sync::OnceLock;
 use std::task::Poll;
-use windows::core::GUID;
 use windows::Win32::Foundation::{GetLastError, HANDLE};
 use windows::Win32::Networking::WinSock::{
-    closesocket, getsockname, WSAGetOverlappedResult, WSAIoctl, WSASocketW, ADDRESS_FAMILY, INVALID_SOCKET, LPFN_ACCEPTEX, SIO_GET_EXTENSION_FUNCTION_POINTER, SOCKADDR, SOCKADDR_IN, SOCKET, SOCK_STREAM, WSAID_ACCEPTEX, WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSA_IO_INCOMPLETE, WSA_IO_PENDING
+    ADDRESS_FAMILY, LPFN_ACCEPTEX, SIO_GET_EXTENSION_FUNCTION_POINTER, SOCK_STREAM, SOCKADDR,
+    SOCKADDR_IN, SOCKET, WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSA_IO_INCOMPLETE,
+    WSA_IO_PENDING, WSAGetOverlappedResult, WSAID_ACCEPTEX, WSAIoctl, WSASocketW, closesocket,
+    getsockname,
 };
-use windows::Win32::System::Threading::CreateEventW;
 use windows::Win32::System::IO::OVERLAPPED;
+use windows::Win32::System::Threading::CreateEventW;
+use windows::core::GUID;
 
 pub type TcpListener = OverlappedTcpListener;
 pub type TcpStream = OverlappedTcpStream;
@@ -95,19 +98,20 @@ impl OverlappedTcpListener {
                 let mut bytes: u32 = 0;
                 let mut func: LPFN_ACCEPTEX = None;
 
-                let x = WSAIoctl(
-                    sock,
-                    SIO_GET_EXTENSION_FUNCTION_POINTER,
-                    Some(&guid as *const GUID as *const std::ffi::c_void),
-                    std::mem::size_of::<GUID>() as u32,
-                    Some(&mut func as *mut LPFN_ACCEPTEX as *mut std::ffi::c_void),
-                    std::mem::size_of::<LPFN_ACCEPTEX>() as u32,
-                    &mut bytes as *mut u32,
-                    None,
-                    None,
-                );
-                if x != 0
-                {
+                let x = unsafe {
+                    WSAIoctl(
+                        sock,
+                        SIO_GET_EXTENSION_FUNCTION_POINTER,
+                        Some(&guid as *const GUID as *const std::ffi::c_void),
+                        std::mem::size_of::<GUID>() as u32,
+                        Some(&mut func as *mut LPFN_ACCEPTEX as *mut std::ffi::c_void),
+                        std::mem::size_of::<LPFN_ACCEPTEX>() as u32,
+                        &mut bytes as *mut u32,
+                        None,
+                        None,
+                    )
+                };
+                if x != 0 {
                     let err: Result<(), Error> = Err(Error::last_os_error());
                     err.unwrap();
                 };
@@ -179,7 +183,7 @@ impl OverlappedTcpListener {
 #[test]
 fn test() -> std::io::Result<()> {
     let sock = OverlappedTcpListener::bind("127.0.0.1:8080")?;
-    let stream = sock.accept(None)?;
+    let _stream = sock.accept(None)?;
 
     Ok(())
 }
