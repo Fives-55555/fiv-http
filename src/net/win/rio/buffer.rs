@@ -140,6 +140,19 @@ impl<'a> RIOBufferSlice<'a> {
             winbuf: winbuf,
         }
     }
+    pub fn buf(&self)->&RIO_BUF {
+        &self.winbuf
+    }
+    pub fn len(&self)->usize {
+        self.winbuf.Length as usize
+    }
+}
+
+impl<'a> Drop for RIOBufferSlice<'a> {
+    fn drop(&mut self) {
+        let len = self.len();
+        self.buf.deallocate(len);
+    }
 }
 
 impl<'a, I: SliceIndex<[u8]>> Index<I> for RIOBufferSlice<'a> {

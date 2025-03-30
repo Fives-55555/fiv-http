@@ -17,9 +17,7 @@ pub struct FutAsyncRead(pub HANDLE);
 
 #[test]
 fn test()->std::io::Result<()> {
-    use iocp::IOCP;
-    use std::net::UdpSocket;
-    use rio::{init, RIOBuffer, CompletionQueue, RequestQueue};
+    use rio::{init, RIOBuffer};
     init();
     let buf = RIOBuffer::new()?;
     drop(buf);

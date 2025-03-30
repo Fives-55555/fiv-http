@@ -152,28 +152,28 @@ mod riofuncs {
 
 use super::iocp::IOCP;
 
-pub struct RegisteredTcpStream<'a> {
-    queue: RequestQueue<'a>,
+pub struct RegisteredTcpStream {
+    queue: RequestQueue,
     // Maybe abstract to use also the Event
     send: CompletionQueue,
     recv: CompletionQueue,
 }
 
-impl<'a> RegisteredTcpStream<'a> {
+impl RegisteredTcpStream {
     pub const DEFAULT_THEAD_AMOUNT: u32 = 0;
-    pub const DEFAULT_QUEUE_SIZE: u32 = 1024;
-    pub fn new<T: AsRawSocket>(sock: T) -> Result<RegisteredTcpStream<'a>, Error> {
+    pub const DEFAULT_QUEUE_SIZE: usize = 1024;
+    pub fn new<T: AsRawSocket>(sock: T) -> Result<RegisteredTcpStream, Error> {
         let iocp: IOCP = IOCP::new()?;
-        let mut send: CompletionQueue = CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp.clone())?;
-        let mut recv: CompletionQueue = CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp)?;
-        let queue: RequestQueue = RequestQueue::new(
+        let send: CompletionQueue = CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp.clone())?;
+        let recv: CompletionQueue = CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp)?;
+        let queue: RequestQueue = RequestQueue::from_raw(
             sock,
-            recv.inner_mut(),
+            &send,
             Self::DEFAULT_QUEUE_SIZE,
-            send.inner_mut(),
+            &recv,
             Self::DEFAULT_QUEUE_SIZE,
         )?;
-        let stream = RegisteredTcpStream {
+        let stream: RegisteredTcpStream = RegisteredTcpStream {
             queue: queue,
             send: send,
             recv: recv,
@@ -188,7 +188,7 @@ impl<'a> RegisteredTcpStream<'a> {
     }
 }
 
-impl<'a> AsRawSocket for RegisteredTcpStream<'a> {
+impl AsRawSocket for RegisteredTcpStream {
     fn as_raw_socket(&self) -> std::os::windows::prelude::RawSocket {
         self.queue.socket().0 as u64
     }

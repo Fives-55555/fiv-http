@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell, RefMut}, ffi::c_void, fmt::Display, io::Error};
+use std::{cell::RefCell, ffi::c_void, fmt::Display, io::Error, rc::Rc};
 
 use windows::Win32::{
     Networking::WinSock::{
@@ -14,13 +14,13 @@ use crate::net::win::{
 
 pub(crate) struct InnerCompletionQueue {
     handle: RIO_CQ,
-    capacity: u32,
-    alloc: u32,
+    capacity: usize,
+    alloc: usize,
     completion: Completion,
 }
 
 impl InnerCompletionQueue {
-    pub(crate) fn allocate(&mut self, amount: u32) -> Result<(), u32> {
+    pub(crate) fn allocate(&mut self, amount: usize) -> Result<(), usize> {
         let x = self.alloc + amount;
         if x <= self.capacity {
             self.alloc = x;
@@ -29,8 +29,11 @@ impl InnerCompletionQueue {
             Err(self.capacity - self.alloc)
         }
     }
-    pub(crate) fn deallocate(&mut self, amount: u32) {
+    pub(crate) fn deallocate(&mut self, amount: usize) {
         self.alloc = self.alloc.saturating_sub(amount)
+    }
+    pub(crate) fn handle(&self)->RIO_CQ {
+        self.handle
     }
 }
 
@@ -43,7 +46,8 @@ impl Drop for InnerCompletionQueue {
     }
 }
 
-pub struct CompletionQueue(RefCell<InnerCompletionQueue>);
+#[derive(Clone)]
+pub struct CompletionQueue(Rc<RefCell<InnerCompletionQueue>>);
 
 impl Display for CompletionQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,49 +57,49 @@ impl Display for CompletionQueue {
 }
 
 impl CompletionQueue {
-    pub const COMPLETION_QUEUE_SIZE: u32 = 64;
+    pub const DEFAULT_QUEUE_SIZE: usize = 1024;
     /// Uses the [`COMPLETION_QUEUE_SIZE`] as default queue size for custom size please use
     /// ['with_capacity'].
     /// ## Completion:
     /// It does not use any type of completion tech. If you need one use ['new_iocp'] or ['new_event'].
-    pub fn new() -> CompletionQueue {
+    pub fn new() -> std::io::Result<CompletionQueue> {
         let notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
         let result: RIO_CQ = unsafe {
             let create = riofuncs::create_completion_queue();
             create(
-                Self::COMPLETION_QUEUE_SIZE,
+                Self::DEFAULT_QUEUE_SIZE as u32,
                 &notify as *const RIO_NOTIFICATION_COMPLETION,
             )
         };
         match result.0 {
-            (..=0) => panic!("Windows Error: {}", Error::last_os_error()),
+            (..=0) => Err(Error::last_os_error()),
             _ => {
-                return CompletionQueue(RefCell::new(InnerCompletionQueue {
+                return Ok(CompletionQueue(Rc::new(RefCell::new(InnerCompletionQueue {
                     handle: result,
-                    capacity: Self::COMPLETION_QUEUE_SIZE,
+                    capacity: Self::DEFAULT_QUEUE_SIZE,
                     alloc: 0,
                     completion: Completion::None,
-                }))
+                }))))
             }
         }
     }
     /// Also assumes no Completion type needed if required use ['new_iocp'] or ['new_event'].
-    pub fn with_capacity(size: u32) -> std::io::Result<CompletionQueue> {
+    pub fn with_capacity(size: usize) -> std::io::Result<CompletionQueue> {
         unsafe {
             let create = riofuncs::create_completion_queue();
             let notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
-            let result: RIO_CQ = create(size, &notify as *const RIO_NOTIFICATION_COMPLETION);
+            let result: RIO_CQ = create(size as u32, &notify as *const RIO_NOTIFICATION_COMPLETION);
             match result.0 {
                 (..=0) => return Err(Error::last_os_error()),
                 _ => {
-                    return Ok(CompletionQueue(RefCell::new(
+                    return Ok(CompletionQueue(Rc::new(RefCell::new(
                         InnerCompletionQueue {
                             handle: result,
                             capacity: size,
                             alloc: 0,
                             completion: Completion::None,
                         },
-                    )))
+                    ))))
                 }
             }
         }
@@ -108,7 +112,7 @@ impl CompletionQueue {
             todo!("Not done")
         }
     }
-    pub fn new_iocp(size: u32, iocp: IOCP) -> std::io::Result<CompletionQueue> {
+    pub fn new_iocp(size: usize, iocp: IOCP) -> std::io::Result<CompletionQueue> {
         unsafe {
             let create = riofuncs::create_completion_queue();
             let entry = IOCPEntry::new(iocp);
@@ -117,34 +121,28 @@ impl CompletionQueue {
             notify.Type = RIO_IOCP_COMPLETION;
             notify.Anonymous.Iocp.IocpHandle = entry.handle();
             notify.Anonymous.Iocp.Overlapped = &mut overlapped as *mut OVERLAPPED as *mut c_void;
-            let result = create(size, &notify);
+            let result = create(size as u32, &notify);
             if result.0 == 0 {
                 return Err(Error::last_os_error());
             }
-            return Ok(CompletionQueue(RefCell::new(
+            return Ok(CompletionQueue(Rc::new(RefCell::new(
                 InnerCompletionQueue {
                     handle: result,
                     capacity: size,
                     alloc: 0,
                     completion: Completion::IOCP(entry),
                 },
-            )));
+            ))));
         }
     }
-    pub fn allocate(&mut self, bytes: usize)-> Result<(), u32>{
-        self.0.borrow_mut().allocate(bytes as u32)
+    pub fn allocate(&self, slots: usize)-> Result<(), usize>{
+        self.0.borrow_mut().allocate(slots)
     }
-    pub fn deallocate(&mut self, bytes: usize) {
-        self.0.borrow_mut().deallocate(bytes as u32)
+    pub fn deallocate(&self, slots: usize) {
+        self.0.borrow_mut().deallocate(slots)
     }
     pub fn handle(&self) -> RIO_CQ {
-        self.0.borrow().handle
-    }
-    pub(crate) fn inner(&self)->Ref<InnerCompletionQueue> {
-        self.0.borrow()
-    }
-    pub(crate) fn inner_mut(&mut self)->RefMut<InnerCompletionQueue> {
-        self.0.borrow_mut()
+        self.0.borrow_mut().handle()
     }
 }
 

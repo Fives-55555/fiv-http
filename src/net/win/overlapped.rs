@@ -122,7 +122,7 @@ impl OverlappedTcpListener {
             #[allow(static_mut_refs)]
             let acceptex = ACCEPTEX.get_or_init(|| acceptex_init(self.socket)).unwrap();
 
-            let event = match eventhdl {
+            let _event = match eventhdl {
                 Some(event) => event,
                 None => match CreateEventW(None, true, false, None) {
                     Ok(handle) => handle,
