@@ -187,3 +187,5 @@ fn test() -> std::io::Result<()> {
 
     Ok(())
 }
+
+struct OverlappedSocket;

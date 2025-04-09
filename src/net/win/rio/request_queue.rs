@@ -1,14 +1,17 @@
-use std::{io::Error, os::windows::io::AsRawSocket};
+use std::{
+    io::Error,
+    os::raw::c_void, time::Duration,
+};
 
-use windows::Win32::Networking::WinSock::{RIO_BUF, RIO_CORRUPT_CQ, RIO_RQ, SOCKET};
+use windows::Win32::Networking::WinSock::{RIO_BUF, RIO_RQ, SOCKET};
 
-use super::{riofuncs, CompletionQueue, RIOBufferSlice};
+use super::{riofuncs, socket::{RIOSocket, ToWinSocket}, CompletionQueue, IOAlias, RIOBufferSlice, RIO_INVALID_RQ};
 
 /// Represents a RequestQueue for Registered I/O operations.  
 /// It maintains a socket handle along with separate completion queues for send and receive operations.
 pub struct RequestQueue {
     id: RIO_RQ,
-    sock: SOCKET,
+    sock: RIOSocket,
     sendcq: CompletionQueue,
     sendsize: usize,
     recvcq: CompletionQueue,
@@ -34,8 +37,8 @@ impl RequestQueue {
     /// # Errors
     ///
     /// Returns an error if the completion queues cannot be created or if allocation fails.
-    pub fn new<T: AsRawSocket>(
-        sock: T,
+    pub fn new(
+        sock: RIOSocket,
     ) -> std::io::Result<(RequestQueue, CompletionQueue, CompletionQueue)> {
         let send = CompletionQueue::new()?;
         let recv = CompletionQueue::new()?;
@@ -68,8 +71,8 @@ impl RequestQueue {
     /// # Errors
     ///
     /// Returns an error if the creation of the RequestQueue fails.
-    pub fn from_comp<T: AsRawSocket>(
-        sock: T,
+    pub fn from_comp(
+        sock: RIOSocket,
         send: Option<(&CompletionQueue, usize)>,
         recv: Option<(&CompletionQueue, usize)>,
     ) -> std::io::Result<(
@@ -87,7 +90,12 @@ impl RequestQueue {
             (Some(send), Some(recv)) => (send.0, send.1, recv.0, recv.1),
             (Some(send), None) => {
                 ret_recv = Some(CompletionQueue::new()?);
-                (send.0, send.1, ret_recv.as_ref().unwrap(), CompletionQueue::DEFAULT_QUEUE_SIZE)
+                (
+                    send.0,
+                    send.1,
+                    ret_recv.as_ref().unwrap(),
+                    CompletionQueue::DEFAULT_QUEUE_SIZE,
+                )
             }
             (None, Some(recv)) => {
                 ret_send = Some(CompletionQueue::new()?);
@@ -122,14 +130,14 @@ impl RequestQueue {
     /// # Errors
     ///
     /// Returns an error if allocation fails or if the underlying RIO request queue is corrupted.
-    pub fn from_raw<T: AsRawSocket>(
-        sock: T,
+    pub fn from_raw(
+        sock: RIOSocket,
         send: &CompletionQueue,
         sendsize: usize,
         recv: &CompletionQueue,
         recvsize: usize,
     ) -> std::io::Result<RequestQueue> {
-        let sock = SOCKET(sock.as_raw_socket() as usize);
+        let socka = sock.to_win_socket();
 
         if recv.allocate(recvsize).is_err() {
             // Possibly add logging here via a macro in the future
@@ -140,27 +148,33 @@ impl RequestQueue {
             return Err(Error::from_raw_os_error(10055));
         }
 
+        std::thread::sleep(Duration::from_secs(1));
+
         let queue = unsafe {
             let create = riofuncs::create_request_queue();
+            let recv_handle = recv.handle();
+            let send_handle = send.handle();
             create(
-                sock,
+                socka,
                 recvsize as u32,
                 8,
                 sendsize as u32,
                 8,
-                recv.handle(),
-                send.handle(),
-                std::ptr::null(),
+                recv_handle,
+                send_handle,
+                0 as *const c_void,
             )
         };
 
-        if queue.0 as u32 == RIO_CORRUPT_CQ {
+        println!("Hello");
+
+        if queue.0 == RIO_INVALID_RQ {
             return Err(Error::last_os_error());
         }
 
         Ok(RequestQueue {
             id: queue,
-            sock,
+            sock: sock,
             sendcq: send.clone(),
             sendsize,
             recvcq: recv.clone(),
@@ -254,14 +268,25 @@ impl RequestQueue {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if the underlying RIO function fails.
-    pub fn add_read(&mut self, buf: &mut RIOBufferSlice) -> std::io::Result<()> {
+    pub fn add_read(&mut self, buf: &mut RIOBufferSlice, alias: IOAlias) -> std::io::Result<()> {
         unsafe {
             let recv = riofuncs::receive();
-            let result = recv(self.id, buf.buf() as *const RIO_BUF, 0, 0, std::ptr::null());
-            if !result.as_bool() {
-                return Err(Error::last_os_error());
-            }
-            Ok(())
+            println!(
+                "{:#?}, {:#?} {}, {}, {:#?}",
+                self.id,
+                buf.buf() as *const RIO_BUF,
+                1,
+                0,
+                alias as *const c_void
+            );
+            Ok(recv(
+                self.id,
+                buf.buf() as *const RIO_BUF,
+                1,
+                0,
+                alias as *const c_void,
+            )
+            .ok()?)
         }
     }
 
@@ -299,6 +324,6 @@ impl RequestQueue {
 
     /// Returns the underlying SOCKET associated with this RequestQueue.
     pub fn socket(&self) -> SOCKET {
-        self.sock
+        self.sock.to_win_socket()
     }
 }

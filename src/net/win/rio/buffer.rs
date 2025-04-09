@@ -162,7 +162,7 @@ impl RIOBuffer {
         };
         Ok(RIOBufferSlice {
             buf: inner,
-            winbuf: winbuf,
+            winbuf: Box::new(winbuf),
         })
     }
 
@@ -198,7 +198,7 @@ impl RIOBuffer {
             return Some((
                 RIOBufferSlice {
                     buf: inner,
-                    winbuf: winbuf,
+                    winbuf: Box::new(winbuf),
                 },
                 size,
             ));
@@ -220,7 +220,7 @@ impl TryFrom<Box<[u8]>> for RIOBuffer {
 /// `RIO_BUF` descriptor that defines the slice's offset and length.
 pub struct RIOBufferSlice<'a> {
     buf: RefMut<'a, InnerRIOBuffer>,
-    winbuf: RIO_BUF,
+    winbuf: Box<RIO_BUF>,
 }
 
 impl<'a> RIOBufferSlice<'a> {
@@ -241,13 +241,13 @@ impl<'a> RIOBufferSlice<'a> {
         };
         RIOBufferSlice {
             buf: buf,
-            winbuf: winbuf,
+            winbuf: Box::new(winbuf),
         }
     }
 
     /// Returns a reference to the underlying `RIO_BUF` descriptor.
     pub fn buf(&self) -> &RIO_BUF {
-        &self.winbuf
+        self.winbuf.as_ref()
     }
 
     /// Returns the length of the buffer slice.
