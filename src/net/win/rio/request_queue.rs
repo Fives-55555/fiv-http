@@ -139,6 +139,14 @@ impl RequestQueue {
     ) -> std::io::Result<RequestQueue> {
         let socka = sock.to_win_socket();
 
+        if recv.is_invalid() {
+            return Err(Error::from_raw_os_error(10022))
+        }
+
+        if send.is_invalid() {
+            return Err(Error::from_raw_os_error(10022))
+        }
+
         if recv.allocate(recvsize).is_err() {
             // Possibly add logging here via a macro in the future
             return Err(Error::from_raw_os_error(10055));

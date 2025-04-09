@@ -92,3 +92,9 @@ impl ToWinSocket for RIOSocket {
         self.0
     }
 }
+
+impl Drop for RIOSocket {
+    fn drop(&mut self) {
+        closesocket(self.0)
+    }
+}

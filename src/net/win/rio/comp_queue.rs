@@ -263,6 +263,9 @@ impl CompletionQueue {
         };
         Ok(self.poll_compl()?.unwrap())
     }
+    pub fn is_invalid(&self)->bool {
+        self.handle == RIO_INVALID_CQ
+    }
 }
 
 /// Represents the completion mechanism used by a CompletionQueue.
