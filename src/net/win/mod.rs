@@ -1,4 +1,3 @@
-use rio::RegisteredTcpStream;
 use windows::Win32::Foundation::HANDLE;
 
 macro_rules! io_err {
@@ -8,26 +7,32 @@ macro_rules! io_err {
 }
 
 // Good for long living or multi packet connections
-pub mod rio;
 pub mod iocp;
+pub mod rio;
 // Good for short living and easy stuff
 pub mod overlapped;
 
 pub struct FutAsyncRead(pub HANDLE);
 
 #[test]
-fn test()->std::io::Result<()> {
-    use rio::{init, RIOBuffer};
+fn test() -> std::io::Result<()> {
+    use rio::{RegisteredTcpStream, RIOBuffer, init};
     init();
-    let buf = RIOBuffer::new()?;
+    let mut buf = RIOBuffer::new()?;
 
-    let sock = RegisteredTcpStream::connect("127.0.0.1:8080").unwrap();
+    let slice = buf.get_whole().unwrap();
 
-    println!("X");
+    let mut sock = RegisteredTcpStream::connect("127.0.0.1:8080").unwrap();
 
-    drop(sock);
+    sock.read(slice)?;
 
-    drop(buf);
-    println!("HI");//Run to here
-    return Ok(())
+    let x = sock.await_read_and_get()?;
+
+    println!("{}", x.0);
+
+    println!("{:?}", x.1.as_slice());
+
+    println!("HI"); //Run to here
+    
+    return Ok(());
 }

@@ -1,10 +1,14 @@
-use std::future::Future;
-use std::io::Error;
-use std::net::{self, ToSocketAddrs};
-use std::os::windows::io::IntoRawSocket;
-use std::pin::Pin;
-use std::sync::OnceLock;
-use std::task::Poll;
+use std::{
+    future::Future,
+    io::Error,
+    net::{self, ToSocketAddrs},
+    os::windows::io::IntoRawSocket,
+    pin::Pin,
+    rc::Rc,
+    sync::OnceLock,
+    task::Poll,
+};
+
 use windows::Win32::Foundation::{GetLastError, HANDLE};
 use windows::Win32::Networking::WinSock::{
     ADDRESS_FAMILY, LPFN_ACCEPTEX, SIO_GET_EXTENSION_FUNCTION_POINTER, SOCK_STREAM, SOCKADDR,
@@ -189,3 +193,23 @@ fn test() -> std::io::Result<()> {
 }
 
 struct OverlappedSocket;
+
+#[derive(Clone)]
+#[cfg(feature = "multithreaded")]
+pub struct Overlapped(Arc<OVERLAPPED>);
+
+#[cfg(not(feature = "multithreaded"))]
+#[derive(Clone)]
+pub struct Overlapped(Rc<OVERLAPPED>);
+
+impl Overlapped {
+    pub fn new()->Overlapped {
+        Overlapped(Rc::new(OVERLAPPED::default()))
+    }
+    pub fn inner(&self)->&OVERLAPPED {
+        &self.0
+    }
+    pub fn inner_rc(&self)->&Rc<OVERLAPPED> {
+        &self.0
+    }
+}

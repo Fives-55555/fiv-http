@@ -5,9 +5,12 @@ use std::{
 };
 
 use windows::Win32::{
-    Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT},
+    Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation},
     Networking::WinSock::{
-        WSAConnect, WSASocketW, AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET, SOCKET, SOCKET_ERROR, WSAEINVAL, WSAEPROTOTYPE, WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_REGISTERED_IO
+        AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, IN6_ADDR_0, SOCKADDR, SOCKADDR_IN,
+        SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET, SOCKET, SOCKET_ERROR,
+        WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_REGISTERED_IO, WSAConnect, WSAEINVAL, WSAEPROTOTYPE,
+        WSASocketW, closesocket,
     },
 };
 
@@ -23,27 +26,37 @@ impl RIOSocket {
         let (family, sock_addr) = match *addr {
             SocketAddr::V4(addr) => {
                 let address = SOCKADDR_INET {
-                    Ipv4: SOCKADDR_IN{
+                    Ipv4: SOCKADDR_IN {
                         sin_family: AF_INET,
                         sin_port: addr.port().to_be(),
-                        sin_addr: IN_ADDR {S_un:IN_ADDR_0{S_addr:addr.ip().clone().into()}},
-                        sin_zero: [0;8]
-                    }
+                        sin_addr: IN_ADDR {
+                            S_un: IN_ADDR_0 {
+                                S_addr: addr.ip().clone().into(),
+                            },
+                        },
+                        sin_zero: [0; 8],
+                    },
                 };
                 (AF_INET, address)
-            },
+            }
             SocketAddr::V6(addr) => {
                 let address = SOCKADDR_INET {
                     Ipv6: SOCKADDR_IN6 {
                         sin6_family: AF_INET6,
                         sin6_port: addr.port().to_be(),
                         sin6_flowinfo: addr.flowinfo(),
-                        sin6_addr: IN6_ADDR{u:IN6_ADDR_0{Word:addr.ip().segments()}},
-                        Anonymous: SOCKADDR_IN6_0{sin6_scope_id:addr.scope_id()}
-                    }
+                        sin6_addr: IN6_ADDR {
+                            u: IN6_ADDR_0 {
+                                Word: addr.ip().segments(),
+                            },
+                        },
+                        Anonymous: SOCKADDR_IN6_0 {
+                            sin6_scope_id: addr.scope_id(),
+                        },
+                    },
                 };
                 (AF_INET6, address)
-            },
+            }
         };
         let socket = match unsafe {
             WSASocketW(
@@ -62,7 +75,8 @@ impl RIOSocket {
                 }
 
                 unsafe {
-                    let socket = WSASocketW(family.0 as i32, typ, 0, None, 0, WSA_FLAG_REGISTERED_IO)?;
+                    let socket =
+                        WSASocketW(family.0 as i32, typ, 0, None, 0, WSA_FLAG_REGISTERED_IO)?;
                     SetHandleInformation(
                         HANDLE(socket.0 as std::os::windows::raw::HANDLE),
                         0,
@@ -73,9 +87,19 @@ impl RIOSocket {
                 }
             }
         };
-        let result = unsafe { WSAConnect(socket, &sock_addr as *const SOCKADDR_INET as *const SOCKADDR, size_of::<SOCKADDR_INET>() as i32, None, None, None, None)};
+        let result = unsafe {
+            WSAConnect(
+                socket,
+                &sock_addr as *const SOCKADDR_INET as *const SOCKADDR,
+                size_of::<SOCKADDR_INET>() as i32,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
         if result == SOCKET_ERROR {
-            return Err(Error::last_os_error())
+            return Err(Error::last_os_error());
         }
         Ok(RIOSocket(socket))
     }
@@ -95,6 +119,10 @@ impl ToWinSocket for RIOSocket {
 
 impl Drop for RIOSocket {
     fn drop(&mut self) {
-        closesocket(self.0)
+        unsafe {
+            if closesocket(self.0) == SOCKET_ERROR {
+                panic!("FATAL: CLosing Socket Error")
+            };
+        }
     }
 }

@@ -13,7 +13,7 @@ use windows::{
 use super::riofuncs;
 
 /// Internal representation of a registered RIO buffer.
-/// 
+///
 /// This structure maintains the RIO buffer identifier, the underlying memory,
 /// and tracks the number of bytes already allocated.
 struct InnerRIOBuffer {
@@ -253,6 +253,9 @@ impl<'a> RIOBufferSlice<'a> {
     /// Returns the length of the buffer slice.
     pub fn len(&self) -> usize {
         self.winbuf.Length as usize
+    }
+    pub fn as_slice(&self)->&[u8] {
+        &self.buf.buf
     }
 }
 

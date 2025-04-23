@@ -1,16 +1,22 @@
-use std::{fmt::Display, io::ErrorKind, net::{SocketAddr, ToSocketAddrs}, os::windows::io::AsRawSocket};
+use std::fmt::Display;
 
-mod buffer;
-mod comp_queue;
-mod request_queue;
 mod socket;
 
-pub use buffer::*;
-pub use comp_queue::*;
-pub use request_queue::*;
+mod buffer;
+pub use buffer::{RIOBuffer, RIOBufferSlice};
+
+mod comp_queue;
+pub use comp_queue::RIOCompletionQueue;
+
+mod request_queue;
+pub use request_queue::RequestQueue;
+
 pub use riofuncs::init;
-use socket::RIOSocket;
-use windows::Win32::Networking::WinSock::{RIORESULT, SOCK_STREAM};
+
+mod stream;
+pub use stream::RegisteredTcpStream;
+
+use windows::Win32::Networking::WinSock::{RIO_CQ, RIO_RQ, RIORESULT};
 
 mod riofuncs {
     use funcs::*;
@@ -157,135 +163,95 @@ mod riofuncs {
     }
 }
 
-use super::iocp::IOCP;
-
-pub struct RegisteredTcpStream {
-    queue: RequestQueue,
-    // Maybe abstract to use also the Event
-    send: CompletionQueue,
-    recv: CompletionQueue,
-}
-
-impl RegisteredTcpStream {
-    pub const DEFAULT_THEAD_AMOUNT: u32 = 0;
-    pub const DEFAULT_QUEUE_SIZE: usize = 1024;
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> std::io::Result<RegisteredTcpStream> {
-        
-        let addrs = match addr.to_socket_addrs() {
-            Ok(addrs) => addrs,
-            Err(e) => return Err(e),
-        };
-        let mut last_err = None;
-        for addr in addrs {
-            match RegisteredTcpStream::single_connect(&addr) {
-                Ok(l) => return Ok(l),
-                Err(e) => last_err = Some(e),
-            }
-        }
-        Err(last_err.unwrap_or_else(|| {
-            std::io::Error::new(ErrorKind::InvalidInput, "could not resolve to any addresses")
-        }))
-    }
-    fn single_connect(addr: &SocketAddr)->std::io::Result<RegisteredTcpStream> {
-        let sock = RIOSocket::new(addr, SOCK_STREAM.0)?;
-        let iocp: IOCP = IOCP::new()?;
-        let send: CompletionQueue =
-            CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp.clone())?;
-        let recv: CompletionQueue = CompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, iocp)?;
-        let queue: RequestQueue = RequestQueue::from_raw(
-            sock,
-            &send,
-            Self::DEFAULT_QUEUE_SIZE,
-            &recv,
-            Self::DEFAULT_QUEUE_SIZE,
-        )?;
-        let stream: RegisteredTcpStream = RegisteredTcpStream {
-            queue: queue,
-            send: send,
-            recv: recv,
-        };
-        Ok(stream)
-    }
-    pub fn read() -> u8 {
-        todo!()
-    }
-    pub fn write() -> u8 {
-        todo!()
-    }
-}
-
-impl AsRawSocket for RegisteredTcpStream {
-    fn as_raw_socket(&self) -> std::os::windows::prelude::RawSocket {
-        self.queue.socket().0 as u64
-    }
-}
-
 pub struct RIOEvent(RIORESULT);
 
 impl RIOEvent {
-    pub fn new()->RIOEvent {
+    pub fn new() -> RIOEvent {
         RIOEvent(RIORESULT::default())
     }
-    pub fn is_ok(&self)->bool {
+    pub fn is_ok(&self) -> bool {
         self.status() == 0
     }
-    pub fn is_err(&self)->bool {
+    pub fn is_err(&self) -> bool {
         self.status() != 0
     }
-    pub fn is_some(&self)->bool {
-        self.0.BytesTransferred!=0
+    pub fn is_some(&self) -> bool {
+        self.0.BytesTransferred != 0
     }
-    pub fn status(&self)->i32 {
+    pub fn status(&self) -> i32 {
         self.0.Status
     }
-    pub fn transfered(&self)->u32 {
+    pub fn transfered(&self) -> u32 {
         self.0.BytesTransferred
     }
-    pub fn socket(&self)->SocketAlias {
+    pub fn socket(&self) -> SocketAlias {
         self.0.SocketContext
     }
-    pub fn io_action(&self)->IOAlias {
+    pub fn io_action(&self) -> IOAlias {
         self.0.RequestContext
     }
-    pub fn as_result(&mut self)->&mut RIORESULT {
+    pub fn as_result(&mut self) -> &mut RIORESULT {
         &mut self.0
     }
 }
 
 impl Display for RIOEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status: {}, Is Err: {}, SocketContext: {}, IOContext: {}, Bytes transferd: {}", self.status(), self.is_err(), self.socket(), self.io_action(), self.transfered())
+        write!(
+            f,
+            "Status: {}, Is Err: {}, SocketContext: {}, IOContext: {}, Bytes transferd: {}",
+            self.status(),
+            self.is_err(),
+            self.socket(),
+            self.io_action(),
+            self.transfered()
+        )
     }
 }
 
+pub struct RIOIoOP<'a> {
+    kind: RW,
+    alias: IOAlias,
+    buffer: RIOBufferSlice<'a>,
+}
+
+impl<'a> RIOIoOP<'a> {
+    pub fn as_slice(&self)->&[u8] {
+        self.buffer.as_slice()
+    }
+    pub fn buf(self)->RIOBufferSlice<'a> {
+        self.buffer
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum RW {
+    Read,
+    Write,
+}
+
 pub type SocketAlias = u64;
-pub type IOAlias = u64; 
+
+pub type IOAlias = u64;
 
 #[test]
 fn test() -> std::io::Result<()> {
-
     init();
 
     let mut buffer = RIOBuffer::new().unwrap();
-    let mut slice = buffer.get_whole().unwrap();
+    let slice = buffer.get_whole().unwrap();
 
     let reg = RegisteredTcpStream::connect("127.0.0.1:8080").unwrap();
 
     println!("What");
 
-    
     println!("Waiting");
 
-    // let x = recv.await_and_compl().unwrap();
-// 
-    // println!("{}", x);
-// 
-    // println!("Waiting, Done");
-    
     drop(reg);
-    
+    drop(slice);
+
     Ok(())
 }
 
-pub const RIO_INVALID_RQ: isize = 0;
-pub const RIO_INVALID_CQ: isize = 0;
+pub const RIO_INVALID_RQ: RIO_RQ = RIO_RQ(0);
+pub const RIO_INVALID_CQ: RIO_CQ = RIO_CQ(0);

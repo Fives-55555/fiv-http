@@ -24,12 +24,10 @@ pub trait Wait {
 #[cfg(windows)]
 pub type OSTimeout = u32;
 
+pub use win::FutAsyncRead;
 #[cfg(windows)]
 pub use win::overlapped::FutOverlappedTcpStream;
 pub use win::overlapped::OverlappedTcpListener;
 pub use win::overlapped::OverlappedTcpStream;
-pub use win::FutAsyncRead;
 
-pub struct IOStream {
-    
-}
+pub struct IOStream {}

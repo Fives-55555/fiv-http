@@ -1,23 +1,24 @@
-use std::{cell::RefCell, ffi::c_void, fmt::Display, io::Error, rc::Rc};
+use std::{cell::{RefCell, RefMut}, ffi::c_void, fmt::Display, io::Error, ops::Deref, rc::Rc};
 
 use windows::Win32::{
     Networking::WinSock::{
-        RIO_CQ, RIO_EVENT_COMPLETION, RIO_IOCP_COMPLETION, RIO_NOTIFICATION_COMPLETION
-    }, System::IO::OVERLAPPED
+        RIO_CQ, RIO_EVENT_COMPLETION, RIO_IOCP_COMPLETION, RIO_NOTIFICATION_COMPLETION,
+    },
+    System::IO::OVERLAPPED,
 };
 
 use crate::net::win::{
-    iocp::{IOCPEntry, IOCP},
+    iocp::{IOCP, IOCPEntry},
     rio::riofuncs,
 };
 
 use super::{RIOEvent, RIO_INVALID_CQ};
 
 /// The inner representation of a CompletionQueue.
-/// 
+///
 /// This structure manages the underlying RIO completion queue handle, its capacity,
 /// the number of currently allocated slots, and the type of completion mechanism being used.
-pub(crate) struct InnerCompletionQueue {
+struct InnerCompletionQueue {
     handle: RIO_CQ,
     capacity: usize,
     alloc: usize,
@@ -25,6 +26,7 @@ pub(crate) struct InnerCompletionQueue {
 }
 
 impl InnerCompletionQueue {
+    pub const MAX: usize = RIOCompletionQueue::MAX_SIZE;
     /// Attempts to allocate a given number of slots in the queue.
     ///
     /// # Arguments
@@ -35,7 +37,7 @@ impl InnerCompletionQueue {
     ///
     /// Returns `Ok(())` if the allocation is successful, or an `Err` containing the number
     /// of available slots if the allocation would exceed the capacity.
-    pub(crate) fn allocate(&mut self, amount: usize) -> Result<(), usize> {
+    fn allocate(&mut self, amount: usize) -> Result<(), usize> {
         let x = self.alloc + amount;
         if x <= self.capacity {
             self.alloc = x;
@@ -50,7 +52,7 @@ impl InnerCompletionQueue {
     /// # Arguments
     ///
     /// * `amount` - The number of slots to deallocate.
-    pub(crate) fn deallocate(&mut self, amount: usize) {
+    fn deallocate(&mut self, amount: usize) {
         self.alloc = self.alloc.saturating_sub(amount)
     }
 
@@ -59,8 +61,36 @@ impl InnerCompletionQueue {
     /// # Returns
     ///
     /// The RIO_CQ handle.
-    pub(crate) fn handle(&self) -> RIO_CQ {
+    fn handle(&self) -> RIO_CQ {
         self.handle
+    }
+    fn shrink_to_fit(&mut self) -> std::io::Result<()> {
+        if self.alloc != self.capacity {
+            unsafe {
+                let resize = riofuncs::resize_completion_queue();
+                if !resize(self.handle,self.alloc as u32).as_bool() {
+                    return Err(Error::last_os_error())
+                }
+                self.capacity=self.alloc
+            }
+        }
+        Ok(())
+    }
+    fn resize(&mut self, new_cap: usize)->std::io::Result<()> {
+        if new_cap > Self::MAX {
+            return Err(Error::from_raw_os_error(87));
+        }
+        if self.alloc > new_cap {
+            return Err(Error::from_raw_os_error(122));
+        }
+            unsafe {
+                let resize = riofuncs::resize_completion_queue();
+                if !resize(self.handle,new_cap as u32).as_bool() {
+                    return Err(Error::last_os_error())
+                }
+                self.capacity=new_cap
+            }
+        Ok(())
     }
 }
 
@@ -68,7 +98,7 @@ impl Drop for InnerCompletionQueue {
     fn drop(&mut self) {
         unsafe {
             let close = riofuncs::close_completion_queue();
-            //close(self.handle)
+            close(self.handle)
         }
     }
 }
@@ -78,11 +108,11 @@ impl Drop for InnerCompletionQueue {
 ///
 /// This type is clonable and uses shared ownership (via `Rc<RefCell<_>>`) for the inner queue.
 #[derive(Clone)]
-pub struct CompletionQueue(Rc<RefCell<InnerCompletionQueue>>);
+pub struct RIOCompletionQueue(Rc<RefCell<InnerCompletionQueue>>);
 
-impl Display for CompletionQueue {
+impl Display for RIOCompletionQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let bor = self.0.borrow();
+        let bor = self.inner();
         write!(
             f,
             "CompletionQueue: (Handle: {}, Capacity: {}, Allocated: {}, Free Space: {}, Completion: {})",
@@ -95,7 +125,7 @@ impl Display for CompletionQueue {
     }
 }
 
-impl CompletionQueue {
+impl RIOCompletionQueue {
     /// The default queue size used for new CompletionQueues.
     pub const DEFAULT_QUEUE_SIZE: usize = 1024;
     pub const MAX_SIZE: usize = 0x8000000;
@@ -108,22 +138,21 @@ impl CompletionQueue {
     /// # Returns
     ///
     /// Returns a new `CompletionQueue` or an error if the underlying system call fails.
-    pub fn new() -> std::io::Result<CompletionQueue> {
+    pub fn new() -> std::io::Result<RIOCompletionQueue> {
         let result: RIO_CQ = unsafe {
             let create = riofuncs::create_completion_queue();
-            create(
-                Self::DEFAULT_QUEUE_SIZE as u32,
-                std::ptr::null()
-            )
+            create(Self::DEFAULT_QUEUE_SIZE as u32, std::ptr::null())
         };
-        match result.0 {
+        match result {
             RIO_INVALID_CQ => Err(Error::last_os_error()),
-            _ => Ok(CompletionQueue(Rc::new(RefCell::new(InnerCompletionQueue {
-                handle: result,
-                capacity: Self::DEFAULT_QUEUE_SIZE,
-                alloc: 0,
-                completion: Completion::None,
-            })))),
+            _ => Ok(RIOCompletionQueue(Rc::new(RefCell::new(
+                InnerCompletionQueue {
+                    handle: result,
+                    capacity: Self::DEFAULT_QUEUE_SIZE,
+                    alloc: 0,
+                    completion: Completion::None,
+                },
+            )))),
         }
     }
 
@@ -139,19 +168,24 @@ impl CompletionQueue {
     /// # Returns
     ///
     /// Returns a new `CompletionQueue` or an error if the underlying system call fails.
-    pub fn with_capacity(size: usize) -> std::io::Result<CompletionQueue> {
+    pub fn with_capacity(size: usize) -> std::io::Result<RIOCompletionQueue> {
+        if size > Self::MAX_SIZE {
+            return Err(Error::from_raw_os_error(87))
+        }
+        let notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
         unsafe {
             let create = riofuncs::create_completion_queue();
-            let notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
             let result: RIO_CQ = create(size as u32, &notify as *const RIO_NOTIFICATION_COMPLETION);
             match result.0 {
                 (..=0) => Err(Error::last_os_error()),
-                _ => Ok(CompletionQueue(Rc::new(RefCell::new(InnerCompletionQueue {
-                    handle: result,
-                    capacity: size,
-                    alloc: 0,
-                    completion: Completion::None,
-                })))),
+                _ => Ok(RIOCompletionQueue(Rc::new(RefCell::new(
+                    InnerCompletionQueue {
+                        handle: result,
+                        capacity: size,
+                        alloc: 0,
+                        completion: Completion::None,
+                    },
+                )))),
             }
         }
     }
@@ -167,7 +201,7 @@ impl CompletionQueue {
     /// # Returns
     ///
     /// Returns a new `CompletionQueue` or an error if not implemented.
-    pub fn new_event(_size: u32) -> std::io::Result<CompletionQueue> {
+    pub fn new_event(_size: u32) -> std::io::Result<RIOCompletionQueue> {
         unsafe {
             let _create = riofuncs::create_completion_queue();
             let mut notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
@@ -186,25 +220,30 @@ impl CompletionQueue {
     /// # Returns
     ///
     /// Returns a new `CompletionQueue` or an error if the underlying system call fails.
-    pub fn new_iocp(size: usize, iocp: IOCP) -> std::io::Result<CompletionQueue> {
+    pub fn new_iocp(size: usize, iocp: IOCP) -> std::io::Result<RIOCompletionQueue> {
+        if size > Self::MAX_SIZE {
+            return Err(Error::from_raw_os_error(87))
+        }
+        let entry = IOCPEntry::new(iocp);
+        let mut overlapped = *entry.overlapped().inner_rc().deref();
+        let mut notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
+        notify.Type = RIO_IOCP_COMPLETION;
+        notify.Anonymous.Iocp.IocpHandle = entry.handle();
         unsafe {
             let create = riofuncs::create_completion_queue();
-            let entry = IOCPEntry::new(iocp);
-            let mut overlapped = *entry.overlapped();
-            let mut notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
-            notify.Type = RIO_IOCP_COMPLETION;
-            notify.Anonymous.Iocp.IocpHandle = entry.handle();
             notify.Anonymous.Iocp.Overlapped = &mut overlapped as *mut OVERLAPPED as *mut c_void;
             let result = create(size as u32, &notify);
             if result.0 == 0 {
                 return Err(Error::last_os_error());
             }
-            Ok(CompletionQueue(Rc::new(RefCell::new(InnerCompletionQueue {
-                handle: result,
-                capacity: size,
-                alloc: 0,
-                completion: Completion::IOCP(entry),
-            }))))
+            Ok(RIOCompletionQueue(Rc::new(RefCell::new(
+                InnerCompletionQueue {
+                    handle: result,
+                    capacity: size,
+                    alloc: 0,
+                    completion: Completion::IOCP(entry),
+                },
+            ))))
         }
     }
 
@@ -218,8 +257,8 @@ impl CompletionQueue {
     ///
     /// Returns `Ok(())` if the allocation is successful or an error with the number of
     /// free slots available if it fails.
-    pub fn allocate(&self, slots: usize) -> Result<(), usize> {
-        self.0.borrow_mut().allocate(slots)
+    pub fn allocate(&mut self, slots: usize) -> Result<(), usize> {
+        self.inner().allocate(slots)
     }
 
     /// Deallocates a specified number of slots from the CompletionQueue.
@@ -227,8 +266,16 @@ impl CompletionQueue {
     /// # Arguments
     ///
     /// * `slots` - The number of slots to deallocate.
-    pub fn deallocate(&self, slots: usize) {
-        self.0.borrow_mut().deallocate(slots)
+    pub fn deallocate(&mut self, slots: usize) {
+        self.inner().deallocate(slots)
+    }
+
+    pub fn shrink_to_fit(&mut self) -> std::io::Result<()> {
+        self.inner().shrink_to_fit()
+    }
+
+    pub fn resize(&mut self, new_cap: usize) -> std::io::Result<()> {
+        self.inner().resize(new_cap)
     }
 
     /// Retrieves the underlying RIO completion queue handle.
@@ -237,34 +284,69 @@ impl CompletionQueue {
     ///
     /// The RIO_CQ handle.
     pub fn handle(&self) -> RIO_CQ {
-        self.0.borrow_mut().handle()
+        self.inner().handle()
     }
-    pub fn poll_compl(&self)->std::io::Result<Option<RIOEvent>> {
+
+    fn inner(&self)->RefMut<InnerCompletionQueue> {
+        self.0.borrow_mut()
+    }
+
+    //Await
+
+    pub fn basic_await_compl(&self)->std::io::Result<()> {
+        let result = unsafe {
+            let notify = riofuncs::notify();
+            notify(self.handle())
+        };
+        if result != 0 {
+            return Err(Error::from_raw_os_error(result));
+        };
+        Ok(())
+    }
+    pub fn iocp_await_compl(&self)->std::io::Result<()> {
+        let inner = self.inner();
+        let handle = inner.completion.iocp_handle();
+        handle.await_compl()
+    }
+    pub fn event_await_compl(&self)->std::io::Result<()> {
+        todo!()
+    }
+
+    // Polling
+
+    pub fn basic_poll_compl(&self) -> std::io::Result<Option<RIOEvent>> {
         let mut event = RIOEvent::new();
         let result = unsafe {
             let poll = riofuncs::dequeue();
             poll(self.handle(), event.as_result() as *mut _, 1)
         };
         if result == 0 {
-            return Ok(None)
+            return Ok(None);
         } else if result == 1 {
             return Ok(Some(event));
         } else {
             return Err(Error::from_raw_os_error(6));
         }
     }
-    pub fn await_and_compl(&self)->std::io::Result<RIOEvent> {
+    pub fn await_compl(&self)->std::io::Result<()> {
+        match self.inner().completion {
+            Completion::IOCP(_)=>self.iocp_await_compl(),
+            Completion::Event(_)=>self.event_await_compl(),
+            Completion::None=>self.basic_await_compl()
+        }
+    }
+    pub fn await_and_poll_compl(&self) -> std::io::Result<RIOEvent> {
         let result = unsafe {
             let notify = riofuncs::notify();
             notify(self.handle())
         };
         if result != 0 {
-            return Err(Error::from_raw_os_error(result))
+            return Err(Error::from_raw_os_error(result));
         };
         Ok(self.poll_compl()?.unwrap())
     }
-    pub fn is_invalid(&self)->bool {
-        self.handle == RIO_INVALID_CQ
+    pub fn is_invalid(&self) -> bool {
+        self.handle() == RIO_INVALID_CQ
     }
 }
 
@@ -275,9 +357,18 @@ pub enum Completion {
     /// IOCP-based completion using the provided `IOCPEntry`.
     IOCP(IOCPEntry),
     /// Event-based completion (placeholder).
-    Event(() /*Please Add*/),
+    Event((/*TODO*/)),
     /// No completion mechanism.
     None,
+}
+
+impl Completion {
+    pub fn iocp_handle(&self)->IOCP {
+        match self {
+            Completion::IOCP(handle)=>handle.iocp(),
+            _=>panic!()
+        }
+    }
 }
 
 impl Display for Completion {
