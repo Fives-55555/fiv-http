@@ -311,8 +311,16 @@ impl RIOCompletionQueue {
     pub fn event_await_compl(&self)->std::io::Result<()> {
         todo!()
     }
+    pub fn await_compl(&self)->std::io::Result<()> {
+        match self.inner().completion {
+            Completion::IOCP(_)=>self.iocp_await_compl(),
+            Completion::Event(_)=>self.event_await_compl(),
+            Completion::None=>self.basic_await_compl()
+        }
+    }
 
     // Polling
+    // Removes the Event from the Queue
 
     pub fn basic_poll_compl(&self) -> std::io::Result<Option<RIOEvent>> {
         let mut event = RIOEvent::new();
@@ -328,22 +336,14 @@ impl RIOCompletionQueue {
             return Err(Error::from_raw_os_error(6));
         }
     }
-    pub fn await_compl(&self)->std::io::Result<()> {
-        match self.inner().completion {
-            Completion::IOCP(_)=>self.iocp_await_compl(),
-            Completion::Event(_)=>self.event_await_compl(),
-            Completion::None=>self.basic_await_compl()
-        }
+    pub fn iocp_poll_compl(&self)->std::io::Result<Option<RIOEvent>> {
+        let inner = self.inner();
+        let handle = inner.completion.iocp_handle();
+        handle.poll_compl()?
     }
     pub fn await_and_poll_compl(&self) -> std::io::Result<RIOEvent> {
-        let result = unsafe {
-            let notify = riofuncs::notify();
-            notify(self.handle())
-        };
-        if result != 0 {
-            return Err(Error::from_raw_os_error(result));
-        };
-        Ok(self.poll_compl()?.unwrap())
+        self.await_compl()?;
+        Ok(self.basic_poll_compl()?.unwrap())
     }
     pub fn is_invalid(&self) -> bool {
         self.handle() == RIO_INVALID_CQ
