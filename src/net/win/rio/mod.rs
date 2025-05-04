@@ -9,6 +9,7 @@ mod comp_queue;
 pub use comp_queue::RIOCompletionQueue;
 
 mod request_queue;
+use comp_queue::RIOPoll;
 pub use request_queue::RequestQueue;
 
 pub use riofuncs::init;
@@ -54,6 +55,7 @@ mod riofuncs {
         pub(crate) type FN_RIOSENDEX = unsafe extern "system" fn(RIO_RQ, *const RIO_BUF, u32, *const RIO_BUF, *const RIO_BUF, *const RIO_BUF, *const RIO_BUF, u32, *const c_void) -> BOOL;
         pub(crate) type FN_RIOREGISTERBUFFER = unsafe extern "system" fn(PCSTR, u32) -> RIO_BUFFERID;
         pub(crate) type FN_RIODEREGISTERBUFFER = unsafe extern "system" fn(RIO_BUFFERID);
+        /// Enables the notification type, resets after one event
         pub(crate) type FN_RIONOTIFY = unsafe extern "system" fn(RIO_CQ) -> i32;
         pub(crate) type FN_RIODEQUEUECOMPLETION = unsafe extern "system" fn(RIO_CQ, *mut RIORESULT, u32) -> u32;
     }
@@ -163,6 +165,8 @@ mod riofuncs {
     }
 }
 
+#[repr(transparent)]
+#[derive(Clone)]
 pub struct RIOEvent(RIORESULT);
 
 impl RIOEvent {
@@ -181,8 +185,8 @@ impl RIOEvent {
     pub fn status(&self) -> i32 {
         self.0.Status
     }
-    pub fn transfered(&self) -> u32 {
-        self.0.BytesTransferred
+    pub fn transfered(&self) -> usize {
+        self.0.BytesTransferred as usize
     }
     pub fn socket(&self) -> SocketAlias {
         self.0.SocketContext
@@ -192,6 +196,9 @@ impl RIOEvent {
     }
     pub fn as_result(&mut self) -> &mut RIORESULT {
         &mut self.0
+    }
+    pub fn as_poll(&self) -> RIOPoll {
+        RIOPoll::from_raw(self.socket(), self.io_action(), self.transfered())
     }
 }
 
@@ -209,25 +216,25 @@ impl Display for RIOEvent {
     }
 }
 
-pub struct RIOIoOP<'a> {
-    kind: RW,
-    alias: IOAlias,
-    buffer: RIOBufferSlice<'a>,
+pub struct RIOIoOP {
+    ioalias: IOAlias,
+    buffer: RIOBufferSlice,
+    len: usize,
 }
 
-impl<'a> RIOIoOP<'a> {
-    pub fn as_slice(&self)->&[u8] {
+impl RIOIoOP {
+    pub fn as_slice(&self) -> &[u8] {
         self.buffer.as_slice()
     }
-    pub fn buf(self)->RIOBufferSlice<'a> {
+    pub fn buf(self) -> RIOBufferSlice {
         self.buffer
     }
-}
-
-#[derive(Copy, Clone, PartialEq)]
-pub enum RW {
-    Read,
-    Write,
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn ioalias(&self)->IOAlias {
+        self.ioalias
+    }
 }
 
 pub type SocketAlias = u64;
@@ -239,7 +246,7 @@ fn test() -> std::io::Result<()> {
     init();
 
     let mut buffer = RIOBuffer::new().unwrap();
-    let slice = buffer.get_whole().unwrap();
+    let slice = buffer.alloc_whole().unwrap();
 
     let reg = RegisteredTcpStream::connect("127.0.0.1:8080").unwrap();
 

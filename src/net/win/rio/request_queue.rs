@@ -3,7 +3,8 @@ use std::{io::Error, os::raw::c_void, time::Duration};
 use windows::Win32::Networking::WinSock::{RIO_BUF, RIO_RQ, SOCKET};
 
 use super::{
-    riofuncs, socket::{RIOSocket, ToWinSocket}, IOAlias, RIOBufferSlice, RIOCompletionQueue, RIOIoOP, RIO_INVALID_RQ, RW
+    IOAlias, RIO_INVALID_RQ, RIOBufferSlice, RIOCompletionQueue, RIOIoOP, riofuncs,
+    socket::{RIOSocket, ToWinSocket},
 };
 
 /// Represents a RequestQueue for Registered I/O operations.  
@@ -18,24 +19,6 @@ pub struct RequestQueue {
 }
 
 impl RequestQueue {
-    /// Creates a new RequestQueue along with its associated send and receive CompletionQueues.
-    ///
-    /// The two completion queues must be distinct.
-    ///
-    /// # Arguments
-    ///
-    /// * `sock` - A socket that implements `AsRawSocket`.
-    ///
-    /// # Returns
-    ///
-    /// Returns a tuple containing:
-    /// - The created `RequestQueue`
-    /// - The send `CompletionQueue`
-    /// - The receive `CompletionQueue`
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the completion queues cannot be created or if allocation fails.
     pub fn new(
         sock: RIOSocket,
     ) -> std::io::Result<(RequestQueue, RIOCompletionQueue, RIOCompletionQueue)> {
@@ -50,26 +33,6 @@ impl RequestQueue {
         )?;
         Ok((req, send, recv))
     }
-
-    /// Creates a RequestQueue from optionally provided completion queues.
-    ///
-    /// If either `send` or `recv` is `None`, a new CompletionQueue is created for that side.
-    ///
-    /// # Arguments
-    ///
-    /// * `sock` - A socket that implements `AsRawSocket`.
-    /// * `send` - An optional tuple of a reference to a send `CompletionQueue` and its size.
-    /// * `recv` - An optional tuple of a reference to a receive `CompletionQueue` and its size.
-    ///
-    /// # Returns
-    ///
-    /// Returns a tuple containing:
-    /// - The created `RequestQueue`
-    /// - A tuple with optional send and receive `CompletionQueue`s that were created
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the creation of the RequestQueue fails.
     pub fn from_comp(
         sock: RIOSocket,
         send: Option<(&mut RIOCompletionQueue, usize)>,
@@ -109,26 +72,6 @@ impl RequestQueue {
         let req = RequestQueue::from_raw(sock, &mut send, sendsize, &mut recv, recvsize)?;
         Ok((req, (ret_send, ret_recv)))
     }
-
-    /// Creates a RequestQueue from raw components.
-    ///
-    /// This function takes ownership of the socket and registers the send and receive CompletionQueues.
-    ///
-    /// # Arguments
-    ///
-    /// * `sock` - A socket that implements `AsRawSocket`.
-    /// * `send` - A reference to the send `CompletionQueue`.
-    /// * `sendsize` - The size (number of buffers) allocated for sending.
-    /// * `recv` - A reference to the receive `CompletionQueue`.
-    /// * `recvsize` - The size (number of buffers) allocated for receiving.
-    ///
-    /// # Returns
-    ///
-    /// Returns the constructed `RequestQueue`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if allocation fails or if the underlying RIO request queue is corrupted.
     pub fn from_raw(
         sock: RIOSocket,
         send: &mut RIOCompletionQueue,
@@ -188,19 +131,6 @@ impl RequestQueue {
             recvsize,
         })
     }
-
-    /// Resizes the send CompletionQueue.
-    ///
-    /// If the new size is greater than the current size, it allocates additional buffers.
-    /// If the new size is less, it deallocates the extra buffers.
-    ///
-    /// # Arguments
-    ///
-    /// * `newsize` - The new desired size for the send CompletionQueue.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if allocation fails.
     pub fn resize_send(&mut self, newsize: usize) -> std::io::Result<()> {
         let size = self.sendsize;
         if size < newsize {
@@ -218,19 +148,6 @@ impl RequestQueue {
             Ok(())
         }
     }
-
-    /// Resizes the receive CompletionQueue.
-    ///
-    /// If the new size is greater than the current size, it allocates additional buffers.
-    /// If the new size is less, it deallocates the extra buffers.
-    ///
-    /// # Arguments
-    ///
-    /// * `newsize` - The new desired size for the receive CompletionQueue.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if allocation fails.
     pub fn resize_recv(&mut self, newsize: usize) -> std::io::Result<()> {
         let size = self.recvsize;
         if size < newsize {
@@ -248,34 +165,15 @@ impl RequestQueue {
             Ok(())
         }
     }
-
-    /// Resizes both the send and receive CompletionQueues.
-    ///
-    /// # Arguments
-    ///
-    /// * `sendsize` - The new desired size for the send CompletionQueue.
-    /// * `recvsize` - The new desired size for the receive CompletionQueue.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if either resize operation fails.
     pub fn resize(&mut self, sendsize: usize, recvsize: usize) -> std::io::Result<()> {
         self.resize_send(sendsize)?;
         self.resize_recv(recvsize)
     }
-
-    /// Adds a read request to the RequestQueue.
-    ///
-    /// This function submits a read operation using the provided buffer slice.
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - A mutable reference to a `RIOBufferSlice` which holds the buffer for the operation.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if the underlying RIO function fails.
-    pub fn add_read<'a>(&mut self, buf: RIOBufferSlice<'a>, alias: IOAlias) -> std::io::Result<RIOIoOP<'a>> {
+    pub fn add_read<'a>(
+        &mut self,
+        buf: RIOBufferSlice,
+        alias: IOAlias,
+    ) -> std::io::Result<RIOIoOP> {
         unsafe {
             let recv = riofuncs::receive();
             recv(
@@ -284,48 +182,46 @@ impl RequestQueue {
                 1,
                 0,
                 alias as *const c_void,
-            ).ok()?;
+            )
+            .ok()?;
         }
         Ok(RIOIoOP {
-            alias: alias,
+            ioalias: alias,
             buffer: buf,
-            kind: RW::Read
+            len: 0,
         })
     }
-
-    /// Adds an extended read request to the RequestQueue.
-    ///
-    /// This function is currently a placeholder for an extended read operation.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if the underlying RIO function fails.
     pub fn add_read_ex(&mut self) -> std::io::Result<()> {
         unsafe {
             let _read_ex = riofuncs::send_ex();
             todo!();
         }
     }
-
-    /// Adds a write request to the RequestQueue.
-    ///
-    /// This function is currently a placeholder for a write operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `_buf` - A reference to a `RIOBufferSlice` which holds the buffer for the operation.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if the underlying RIO function fails.
-    pub fn add_write<'a>(&mut self, _buf: RIOBufferSlice<'a>, _alias: IOAlias) -> std::io::Result<RIOIoOP<'a>> {
+    pub fn add_write(&mut self, buf: RIOBufferSlice, alias: IOAlias) -> std::io::Result<RIOIoOP> {
         unsafe {
-            let _recv = riofuncs::send();
+            let send = riofuncs::send();
+            send(
+                self.id.clone(),
+                buf.buf() as *const RIO_BUF,
+                1,
+                0,
+                alias as *const c_void,
+            )
+            .ok()?;
+        }
+        Ok(RIOIoOP {
+            ioalias: alias,
+            buffer: buf,
+            len: 0,
+        })
+    }
+
+    pub fn add_write_ex(&mut self) -> std::io::Result<()> {
+        unsafe {
+            let _send_ex = riofuncs::send_ex();
             todo!();
         }
     }
-
-    /// Returns the underlying SOCKET associated with this RequestQueue.
     pub fn socket(&self) -> SOCKET {
         self.sock.to_win_socket()
     }

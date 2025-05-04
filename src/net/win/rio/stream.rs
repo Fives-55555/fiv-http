@@ -6,24 +6,29 @@ use std::{
 
 use windows::Win32::Networking::WinSock::SOCK_STREAM;
 
-use crate::net::win::iocp::IOCP;
+use crate::net::{
+    AsyncIO,
+    win::{
+        iocp::IOCP,
+        rio::{RIOBufferSlice, RIOCompletionQueue, RIOIoOP, RequestQueue, socket::RIOSocket},
+    },
+};
 
-use super::{socket::RIOSocket, RIOBufferSlice, RIOCompletionQueue, RIOEvent, RIOIoOP, RequestQueue};
-
-pub struct RegisteredTcpStream<'a> {
+pub struct RegisteredTcpStream {
     queue: RequestQueue,
     // Maybe abstract to use also the Event
     send: RIOCompletionQueue,
     send_iocp: IOCP,
+    send_op: Option<RIOIoOP>,
     recv: RIOCompletionQueue,
     recv_iocp: IOCP,
-    io_ops: [Option<RIOIoOP<'a>>; 2],
+    recv_op: Option<RIOIoOP>,
 }
 
-impl<'a> RegisteredTcpStream<'a> {
+impl RegisteredTcpStream {
     pub const DEFAULT_THEAD_AMOUNT: u32 = 0;
     pub const DEFAULT_QUEUE_SIZE: usize = 1024;
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> std::io::Result<RegisteredTcpStream<'a>> {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> std::io::Result<RegisteredTcpStream> {
         let addrs = match addr.to_socket_addrs() {
             Ok(addrs) => addrs,
             Err(e) => return Err(e),
@@ -42,14 +47,14 @@ impl<'a> RegisteredTcpStream<'a> {
             )
         }))
     }
-    fn single_connect<'b>(addr: &'b SocketAddr) -> std::io::Result<RegisteredTcpStream<'a>> {
+    fn single_connect<'b>(addr: &'b SocketAddr) -> std::io::Result<RegisteredTcpStream> {
         let sock = RIOSocket::new(addr, SOCK_STREAM.0)?;
         let send_iocp: IOCP = IOCP::new()?;
         let recv_iocp: IOCP = IOCP::new()?;
         let mut send: RIOCompletionQueue =
-            RIOCompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, send_iocp.clone())?;
+            RIOCompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, send_iocp.clone(), 1)?;
         let mut recv: RIOCompletionQueue =
-            RIOCompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, recv_iocp.clone())?;
+            RIOCompletionQueue::new_iocp(Self::DEFAULT_QUEUE_SIZE, recv_iocp.clone(), 2)?;
         let queue: RequestQueue = RequestQueue::from_raw(
             sock,
             &mut send,
@@ -61,56 +66,95 @@ impl<'a> RegisteredTcpStream<'a> {
             queue: queue,
             send: send,
             send_iocp: send_iocp,
+            send_op: None,
             recv: recv,
             recv_iocp: recv_iocp,
-            io_ops: [const { None }; 2],
+            recv_op: None,
         };
         Ok(stream)
     }
     /// Important the stream can only be associated with one buffer
-    pub fn read(&mut self, buf: RIOBufferSlice<'a>) -> std::io::Result<()> {
-        if self.io_ops[0].is_some() {
+    pub fn add_read(&mut self, buf: RIOBufferSlice) -> std::io::Result<()> {
+        if self.recv_op.is_some() {
             return Err(std::io::Error::new(
                 ErrorKind::StorageFull,
                 "Already Read in Queue",
             ));
         }
-        self.io_ops[0] = Some(self.queue.add_read(buf, 0)?);
+        self.recv_op = Some(self.queue.add_read(buf, 1)?);
         Ok(())
     }
     /// Important the stream can only be associated with one buffer
-    pub fn write(&mut self, buf: RIOBufferSlice<'a>) -> std::io::Result<()> {
-        if self.io_ops[1].is_some() {
+    pub fn add_write(&mut self, buf: RIOBufferSlice) -> std::io::Result<()> {
+        if self.send_op.is_some() {
             return Err(std::io::Error::new(
                 ErrorKind::StorageFull,
                 "Already Read in Queue",
             ));
         }
-        self.io_ops[1] = Some(self.queue.add_write(buf, 1)?);
+        self.send_op = Some(self.queue.add_write(buf, 2)?);
         Ok(())
     }
-    pub fn await_read(&self)->std::io::Result<()> {
-        self.recv_iocp.await_compl()
+
+    // Read
+    pub fn has_read(&self) -> bool {
+        self.recv_op.is_some()
     }
-    pub fn get_read(&self)->std::io::Result<Option<()>> {
-        self.recv_iocp.poll_compl()?;
-        Ok(Some(()))
+    pub fn await_read(&self) -> std::io::Result<()> {
+        self.recv.await_cmpl()
     }
-    pub fn await_read_and_get(&mut self)->std::io::Result<(RIOEvent, RIOIoOP)> {
-        self.recv.await_and_poll_compl().and_then(|res| Ok((res, self.io_ops[0].take().unwrap())))
+    pub fn poll_read(&mut self) -> std::io::Result<Option<RIOIoOP>> {
+        if !self.has_read() {
+            return Ok(None);
+        }
+        let x = match self.recv.poll()? {
+            Some(inner) => inner,
+            None => return Ok(None),
+        };
+        let mut ret = self.get_read().unwrap();
+        ret.len = x.len();
+        Ok(Some(ret))
     }
-    pub fn await_write(&self)->std::io::Result<()> {
-        self.send.await_compl()
+    fn get_read(&mut self) -> Option<RIOIoOP> {
+        self.recv_op.take()
     }
-    pub fn get_write(&self)->std::io::Result<Option<RIOEvent>> {
-        self.send.poll_compl();todo!()
+    /// Expects a queued read request
+    pub fn await_read_and_get<'b>(&mut self) -> std::io::Result<RIOIoOP> {
+        self.await_read()?;
+        let poll = self.poll_read()?;
+        Ok(poll.unwrap())
     }
-    pub fn await_write_and_get(&mut self)->std::io::Result<(RIOEvent, RIOIoOP)> {
-        self.send.await_and_poll_compl().and_then(|res| Ok((res, self.io_ops[1].take().unwrap())))
+
+    // Write
+    pub fn has_write(&self) -> bool {
+        self.send_op.is_some()
+    }
+    pub fn await_write(&self) -> std::io::Result<()> {
+        self.send.await_cmpl()
+    }
+    pub fn poll_write(&mut self) -> std::io::Result<Option<RIOIoOP>> {
+        if !self.has_write() {
+            return Ok(None);
+        }
+        let x = match self.send.poll()? {
+            Some(inner) => inner,
+            None => return Ok(None),
+        };
+        let mut ret = self.get_write().unwrap();
+        ret.len = x.len();
+        Ok(Some(ret))
+    }
+    fn get_write(&mut self) -> Option<RIOIoOP> {
+        self.send_op.take()
+    }
+    /// Expects a queued write request
+    pub fn await_write_and_get(&mut self) -> std::io::Result<RIOIoOP> {
+        self.await_write()?;
+        Ok(self.poll_write()?.unwrap())
     }
 }
 
-impl AsRawSocket for RegisteredTcpStream<'_> {
+impl AsRawSocket for RegisteredTcpStream {
     fn as_raw_socket(&self) -> std::os::windows::prelude::RawSocket {
         self.queue.socket().0 as u64
     }

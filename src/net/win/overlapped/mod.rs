@@ -203,13 +203,19 @@ pub struct Overlapped(Arc<OVERLAPPED>);
 pub struct Overlapped(Rc<OVERLAPPED>);
 
 impl Overlapped {
-    pub fn new()->Overlapped {
+    pub fn new() -> Overlapped {
         Overlapped(Rc::new(OVERLAPPED::default()))
     }
-    pub fn inner(&self)->&OVERLAPPED {
+    pub fn inner(&self) -> &OVERLAPPED {
         &self.0
     }
-    pub fn inner_rc(&self)->&Rc<OVERLAPPED> {
+    pub fn inner_rc(&self) -> &Rc<OVERLAPPED> {
         &self.0
+    }
+}
+
+impl PartialEq for Overlapped {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner().hEvent == other.inner().hEvent
     }
 }

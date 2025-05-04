@@ -16,23 +16,31 @@ pub struct FutAsyncRead(pub HANDLE);
 
 #[test]
 fn test() -> std::io::Result<()> {
-    use rio::{RegisteredTcpStream, RIOBuffer, init};
+    use rio::{RIOBuffer, RegisteredTcpStream, init};
     init();
     let mut buf = RIOBuffer::new()?;
 
-    let slice = buf.get_whole().unwrap();
+    let slice = buf.alloc_whole().unwrap();
 
     let mut sock = RegisteredTcpStream::connect("127.0.0.1:8080").unwrap();
 
-    sock.read(slice)?;
+    sock.add_read(slice)?;
 
     let x = sock.await_read_and_get()?;
 
-    println!("{}", x.0);
+    println!("{}", x.len());
 
-    println!("{:?}", x.1.as_slice());
+    println!("{:?}", x.as_slice());
 
-    println!("HI"); //Run to here
-    
+    // println!("HI"); //Run to here
+
+    // sock.add_read(slice)?;
+
+    // let x = sock.await_read_and_get()?;
+
+    // println!("{}", x.len());
+
+    // println!("{:?}", x.as_slice());
+
     return Ok(());
 }

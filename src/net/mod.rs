@@ -9,6 +9,7 @@ pub enum Protocol {
 
 use std::sync::Once;
 use std::task::Poll;
+use std::time::Duration;
 
 pub fn init() {
     static INIT: Once = Once::new();
@@ -30,4 +31,26 @@ pub use win::overlapped::FutOverlappedTcpStream;
 pub use win::overlapped::OverlappedTcpListener;
 pub use win::overlapped::OverlappedTcpStream;
 
-pub struct IOStream {}
+pub trait AsyncIO {
+    type Output;
+    /// Every Poll does dequeue an event
+    fn poll(&mut self) -> std::io::Result<Option<Self::Output>>;
+    fn poll_timeout(&mut self, _to: Duration) -> std::io::Result<Option<Self::Output>> {
+        unimplemented!()
+    }
+    fn mass_poll(&mut self, _len: usize) -> std::io::Result<Vec<Self::Output>> {
+        unimplemented!()
+    }
+    fn mass_poll_timeout(
+        &mut self,
+        _len: usize,
+        _to: Duration,
+    ) -> std::io::Result<Vec<Self::Output>> {
+        unimplemented!()
+    }
+    fn await_cmpl(&self) -> std::io::Result<()>;
+    fn await_and_poll(&mut self) -> std::io::Result<Self::Output> {
+        self.await_cmpl()?;
+        Ok(self.poll()?.unwrap())
+    }
+}
