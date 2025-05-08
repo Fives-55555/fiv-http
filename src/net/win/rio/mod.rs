@@ -232,7 +232,7 @@ impl RIOIoOP {
     pub fn len(&self) -> usize {
         self.len
     }
-    pub fn ioalias(&self)->IOAlias {
+    pub fn ioalias(&self) -> IOAlias {
         self.ioalias
     }
 }

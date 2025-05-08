@@ -1,7 +1,8 @@
 use std::{
     io::Error,
     net::{SocketAddr, ToSocketAddrs},
-    os::windows::io::{AsRawSocket, RawSocket}, time::Duration,
+    os::windows::io::{AsRawSocket, RawSocket},
+    time::Duration,
 };
 
 use windows::Win32::{

@@ -27,10 +27,6 @@ use crate::net::{
 
 use super::{IOAlias, SocketAlias};
 
-/// The inner representation of a CompletionQueue.
-///
-/// This structure manages the underlying RIO completion queue handle, its capacity,
-/// the number of currently allocated slots, and the type of completion mechanism being used.
 struct InnerCompletionQueue {
     handle: RIO_CQ,
     capacity: usize,
@@ -40,16 +36,7 @@ struct InnerCompletionQueue {
 
 impl InnerCompletionQueue {
     pub const MAX: usize = RIOCompletionQueue::MAX_SIZE;
-    /// Attempts to allocate a given number of slots in the queue.
-    ///
-    /// # Arguments
-    ///
-    /// * `amount` - The number of additional slots to allocate.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the allocation is successful, or an `Err` containing the number
-    /// of available slots if the allocation would exceed the capacity.
+
     fn allocate(&mut self, amount: usize) -> Result<(), usize> {
         let x = self.alloc + amount;
         if x <= self.capacity {
@@ -59,21 +46,9 @@ impl InnerCompletionQueue {
             Err(self.capacity - self.alloc)
         }
     }
-
-    /// Deallocates a given number of slots from the queue.
-    ///
-    /// # Arguments
-    ///
-    /// * `amount` - The number of slots to deallocate.
     fn deallocate(&mut self, amount: usize) {
         self.alloc = self.alloc.saturating_sub(amount)
     }
-
-    /// Retrieves the underlying RIO completion queue handle.
-    ///
-    /// # Returns
-    ///
-    /// The RIO_CQ handle.
     fn handle(&self) -> RIO_CQ {
         self.handle
     }
@@ -217,22 +192,18 @@ impl RIOCompletionQueue {
     pub fn deallocate(&mut self, slots: usize) {
         self.inner().deallocate(slots)
     }
-
     pub fn shrink_to_fit(&mut self) -> std::io::Result<()> {
         self.inner().shrink_to_fit()
     }
-
     pub fn resize(&mut self, new_cap: usize) -> std::io::Result<()> {
         self.inner().resize(new_cap)
     }
     pub fn handle(&self) -> RIO_CQ {
         self.inner().handle()
     }
-
     fn inner(&self) -> RefMut<InnerCompletionQueue> {
         self.0.borrow_mut()
     }
-
     pub fn is_invalid(&self) -> bool {
         self.handle() == RIO_INVALID_CQ
     }
@@ -298,7 +269,7 @@ impl AsyncIO for RIOCompletionQueue {
             Completion::Event(_inner) => {
                 todo!()
             }
-            Completion::None =>(),
+            Completion::None => (),
         }
         Ok(())
     }

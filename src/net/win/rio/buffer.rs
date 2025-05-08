@@ -119,7 +119,7 @@ struct InnerBufferNode {
 }
 
 impl InnerBufferNode {
-    fn to_used(&mut self)->Option<()> {
+    fn to_used(&mut self) -> Option<()> {
         match self.useage {
             Useage::NotUsed => {
                 self.useage = Useage::Used;
