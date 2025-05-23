@@ -6,7 +6,7 @@ use std::{
 
 use windows::Win32::Networking::WinSock::SOCK_STREAM;
 
-use crate::net::{
+use crate::{
     AsyncIO,
     win::{
         iocp::IOCP,

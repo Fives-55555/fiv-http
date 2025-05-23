@@ -17,12 +17,10 @@ use windows::Win32::{
     System::IO::OVERLAPPED,
 };
 
-use crate::net::{
-    AsyncIO,
+use crate::{
     win::{
-        iocp::{IOCP, IOCPEntry},
-        rio::{RIO_INVALID_CQ, RIOEvent, riofuncs},
-    },
+        event::Event, iocp::{IOCPEntry, IOCP}, rio::{riofuncs, RIOEvent, RIO_INVALID_CQ}
+    }, AsyncIO
 };
 
 use super::{IOAlias, SocketAlias};
@@ -254,8 +252,9 @@ impl AsyncIO for RIOCompletionQueue {
         Ok(v)
     }
     fn await_cmpl(&self) -> std::io::Result<()> {
-        if self.inner().completion == Completion::None {
-            unimplemented!()
+        match self.inner().completion {
+            Completion::None=>unimplemented!(),
+            _=>()
         }
         unsafe {
             let notify = riofuncs::notify();
@@ -275,12 +274,11 @@ impl AsyncIO for RIOCompletionQueue {
     }
 }
 
-#[derive(PartialEq)]
 pub enum Completion {
     /// IOCP-based completion using the provided `IOCPEntry`.
     IOCP(IOCPEntry),
     /// Event-based completion (placeholder).
-    Event(()),
+    Event(Event),
     /// No completion mechanism.
     None,
 }

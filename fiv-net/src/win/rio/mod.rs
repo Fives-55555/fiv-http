@@ -37,12 +37,12 @@ mod riofuncs {
         use windows::{
             core::PCSTR,
             Win32::{
-                Foundation::BOOL,
                 Networking::WinSock::{
                     RIORESULT, RIO_BUF, RIO_BUFFERID, RIO_CQ, RIO_NOTIFICATION_COMPLETION, RIO_RQ, SOCKET
                 },
             },
         };
+        use windows_result::BOOL;
         
         pub(crate) type FN_RIOCREATECOMPLETIONQUEUE = unsafe extern "system" fn(u32, *const RIO_NOTIFICATION_COMPLETION) -> RIO_CQ;
         pub(crate) type FN_RIORESIZECOMPLETIONQUEUE = unsafe extern "system" fn(RIO_CQ, u32) -> BOOL;

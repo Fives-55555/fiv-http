@@ -20,7 +20,7 @@ use std::rc::Rc;
 #[cfg(feature = "multithreaded")]
 use std::sync::Arc;
 
-use crate::net::AsyncIO;
+use crate::AsyncIO;
 
 use super::overlapped::Overlapped;
 

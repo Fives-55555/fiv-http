@@ -1,9 +1,8 @@
 #[cfg(windows)]
 pub mod win;
 
-pub enum Protocol {
+pub enum LLProtocol {
     UDP,
-    TLS,
     TCP,
 }
 
