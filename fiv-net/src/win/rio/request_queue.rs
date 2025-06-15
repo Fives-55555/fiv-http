@@ -3,7 +3,7 @@ use std::{io::Error, os::raw::c_void, time::Duration};
 use windows::Win32::Networking::WinSock::{RIO_BUF, RIO_RQ, SOCKET};
 
 use super::{
-    IOAlias, RIO_INVALID_RQ, RIOBufferSlice, RIOCompletionQueue, RIOIoOP, riofuncs,
+    IOAlias, RIO_INVALID_RQ, RIOBufferSlice, RIOCompletionQueue, RIOIoOP, funcs,
     socket::{RIOSocket, ToWinSocket},
 };
 
@@ -103,7 +103,7 @@ impl RequestQueue {
         let queue = unsafe {
             let recv_handle = recv.handle();
             let send_handle = send.handle();
-            let create = riofuncs::create_request_queue();
+            let create = funcs::create_request_queue();
             create(
                 socka,
                 recvsize as u32,
@@ -176,7 +176,7 @@ impl RequestQueue {
         alias: IOAlias,
     ) -> std::io::Result<RIOIoOP> {
         unsafe {
-            let recv = riofuncs::receive();
+            let recv = funcs::receive();
             recv(
                 self.id.clone(),
                 buf.buf() as *const RIO_BUF,
@@ -194,13 +194,13 @@ impl RequestQueue {
     }
     pub fn add_read_ex(&mut self) -> std::io::Result<()> {
         unsafe {
-            let _read_ex = riofuncs::send_ex();
+            let _read_ex = funcs::send_ex();
             todo!();
         }
     }
     pub fn add_write(&mut self, buf: RIOBufferSlice, alias: IOAlias) -> std::io::Result<RIOIoOP> {
         unsafe {
-            let send = riofuncs::send();
+            let send = funcs::send();
             send(
                 self.id.clone(),
                 buf.buf() as *const RIO_BUF,
@@ -219,7 +219,7 @@ impl RequestQueue {
 
     pub fn add_write_ex(&mut self) -> std::io::Result<()> {
         unsafe {
-            let _send_ex = riofuncs::send_ex();
+            let _send_ex = funcs::send_ex();
             todo!();
         }
     }

@@ -6,6 +6,28 @@ pub enum LLProtocol {
     TCP,
 }
 
+impl LLProtocol {
+    pub fn to_type(&self) -> i32 {
+        match self {
+            LLProtocol::TCP => 1,
+            LLProtocol::UDP => 2,
+        }
+    }
+    pub fn to_proto(&self) -> i32 {
+        match self {
+            LLProtocol::TCP | LLProtocol::UDP => 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(i32)]
+pub enum AddrsFamily {
+    IPV4 = 2,
+    IPV6 = 23,
+}
+
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Once;
 use std::task::Poll;
 use std::time::Duration;
@@ -23,12 +45,6 @@ pub trait Wait {
 
 #[cfg(windows)]
 pub type OSTimeout = u32;
-
-pub use win::FutAsyncRead;
-#[cfg(windows)]
-pub use win::overlapped::FutOverlappedTcpStream;
-pub use win::overlapped::OverlappedTcpListener;
-pub use win::overlapped::OverlappedTcpStream;
 
 pub trait AsyncIO {
     type Output;
@@ -52,4 +68,18 @@ pub trait AsyncIO {
         self.await_cmpl()?;
         Ok(self.poll()?.unwrap())
     }
+}
+
+pub fn for_each_addrs<A: ToSocketAddrs, T, F: Fn(SocketAddr) -> std::io::Result<T>>(
+    addrs: A,
+    func: F,
+) -> std::io::Result<T> {
+    let mut error = None;
+    for addr in addrs.to_socket_addrs()? {
+        match func(addr) {
+            Ok(ok) => return Ok(ok),
+            Err(err) => error = Some(err),
+        }
+    }
+    return Err(error.unwrap());
 }

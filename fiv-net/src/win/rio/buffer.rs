@@ -12,7 +12,7 @@ use windows::{
     core::PCSTR,
 };
 
-use super::riofuncs;
+use super::funcs;
 
 pub struct RIOBuffer {
     id: RIO_BUFFERID,
@@ -33,7 +33,7 @@ impl RIOBuffer {
     }
     pub fn from_buf(mut buf: Box<[u8]>) -> std::io::Result<RIOBuffer> {
         let bufferid = unsafe {
-            let register = riofuncs::register_buffer();
+            let register = funcs::register_buffer();
             register(PCSTR(buf.as_ptr()), buf.len() as u32)
         };
         if bufferid.0 == 0 {
@@ -99,7 +99,7 @@ impl TryFrom<Box<[u8]>> for RIOBuffer {
 impl Drop for RIOBuffer {
     fn drop(&mut self) {
         unsafe {
-            let dereg = riofuncs::deregister_buffer();
+            let dereg = funcs::deregister_buffer();
             dereg(self.id);
         }
     }

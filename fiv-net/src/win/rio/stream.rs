@@ -4,25 +4,24 @@ use std::{
     os::windows::io::AsRawSocket,
 };
 
-use windows::Win32::Networking::WinSock::SOCK_STREAM;
-
 use crate::{
-    AsyncIO,
     win::{
-        iocp::IOCP,
-        rio::{RIOBufferSlice, RIOCompletionQueue, RIOIoOP, RequestQueue, socket::RIOSocket},
-    },
+        completion::IOCP,
+        rio::{comp_queue::Completion, socket::RIOSocket, RIOBufferSlice, RIOCompletionQueue, RIOIoOP, RequestQueue}, socket::FivSocket,
+    }, AsyncIO
 };
+
+pub struct RequestInner {
+    queue: RIOCompletionQueue,
+    iocp: Completion,
+    op: Option<RIOIoOP>,
+}
 
 pub struct RegisteredTcpStream {
     queue: RequestQueue,
     // Maybe abstract to use also the Event
-    send: RIOCompletionQueue,
-    send_iocp: IOCP,
-    send_op: Option<RIOIoOP>,
-    recv: RIOCompletionQueue,
-    recv_iocp: IOCP,
-    recv_op: Option<RIOIoOP>,
+    send: RequestInner,
+    recv: RequestInner,
 }
 
 impl RegisteredTcpStream {
@@ -47,8 +46,8 @@ impl RegisteredTcpStream {
             )
         }))
     }
-    fn single_connect<'b>(addr: &'b SocketAddr) -> std::io::Result<RegisteredTcpStream> {
-        let sock = RIOSocket::new(addr, SOCK_STREAM.0)?;
+    fn single_connect<'b>(addr: SocketAddr) -> std::io::Result<RegisteredTcpStream> {
+        let sock = FivSocket::new_rio()?;
         let send_iocp: IOCP = IOCP::new()?;
         let recv_iocp: IOCP = IOCP::new()?;
         let mut send: RIOCompletionQueue =

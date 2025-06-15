@@ -18,9 +18,11 @@ use windows::Win32::{
 };
 
 use crate::{
+    AsyncIO,
     win::{
-        event::Event, iocp::{IOCPEntry, IOCP}, rio::{riofuncs, RIOEvent, RIO_INVALID_CQ}
-    }, AsyncIO
+        completion::{Event, IOCP, IOCPEntry},
+        rio::{RIO_INVALID_CQ, RIOEvent, funcs},
+    },
 };
 
 use super::{IOAlias, SocketAlias};
@@ -53,7 +55,7 @@ impl InnerCompletionQueue {
     fn shrink_to_fit(&mut self) -> std::io::Result<()> {
         if self.alloc != self.capacity {
             unsafe {
-                let resize = riofuncs::resize_completion_queue();
+                let resize = funcs::resize_completion_queue();
                 if !resize(self.handle, self.alloc as u32).as_bool() {
                     return Err(Error::last_os_error());
                 }
@@ -70,7 +72,7 @@ impl InnerCompletionQueue {
             return Err(Error::from_raw_os_error(122));
         }
         unsafe {
-            let resize = riofuncs::resize_completion_queue();
+            let resize = funcs::resize_completion_queue();
             if !resize(self.handle, new_cap as u32).as_bool() {
                 return Err(Error::last_os_error());
             }
@@ -83,7 +85,7 @@ impl InnerCompletionQueue {
 impl Drop for InnerCompletionQueue {
     fn drop(&mut self) {
         unsafe {
-            let close = riofuncs::close_completion_queue();
+            let close = funcs::close_completion_queue();
             close(self.handle)
         }
     }
@@ -113,7 +115,7 @@ impl RIOCompletionQueue {
 
     pub fn new() -> std::io::Result<RIOCompletionQueue> {
         let result: RIO_CQ = unsafe {
-            let create = riofuncs::create_completion_queue();
+            let create = funcs::create_completion_queue();
             create(Self::DEFAULT_QUEUE_SIZE as u32, std::ptr::null())
         };
         match result {
@@ -134,7 +136,7 @@ impl RIOCompletionQueue {
         }
         let notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
         unsafe {
-            let create = riofuncs::create_completion_queue();
+            let create = funcs::create_completion_queue();
             let result: RIO_CQ = create(size as u32, &notify as *const RIO_NOTIFICATION_COMPLETION);
             match result.0 {
                 (..=0) => Err(Error::last_os_error()),
@@ -151,7 +153,7 @@ impl RIOCompletionQueue {
     }
     pub fn new_event(_size: u32) -> std::io::Result<RIOCompletionQueue> {
         unsafe {
-            let _create = riofuncs::create_completion_queue();
+            let _create = funcs::create_completion_queue();
             let mut notify: RIO_NOTIFICATION_COMPLETION = RIO_NOTIFICATION_COMPLETION::default();
             notify.Type = RIO_EVENT_COMPLETION;
             todo!("Not done")
@@ -168,7 +170,7 @@ impl RIOCompletionQueue {
         notify.Anonymous.Iocp.CompletionKey = id as *mut c_void;
         notify.Anonymous.Iocp.IocpHandle = entry.handle();
         unsafe {
-            let create = riofuncs::create_completion_queue();
+            let create = funcs::create_completion_queue();
             notify.Anonymous.Iocp.Overlapped = &mut overlapped as *mut OVERLAPPED as *mut c_void;
             let result = create(size as u32, &notify);
             if result.0 == 0 {
@@ -212,7 +214,7 @@ impl AsyncIO for RIOCompletionQueue {
     fn poll(&mut self) -> std::io::Result<Option<Self::Output>> {
         let mut event: MaybeUninit<RIOEvent> = MaybeUninit::uninit();
         let (result, event) = unsafe {
-            let poll = riofuncs::dequeue();
+            let poll = funcs::dequeue();
             (
                 poll(self.handle(), event.as_mut_ptr() as *mut RIORESULT, 1),
                 event.assume_init(),
@@ -229,7 +231,7 @@ impl AsyncIO for RIOCompletionQueue {
     fn mass_poll(&mut self, len: usize) -> std::io::Result<Vec<Self::Output>> {
         let mut vec: Vec<RIOEvent> = Vec::with_capacity(len);
         let result = unsafe {
-            let poll = riofuncs::dequeue();
+            let poll = funcs::dequeue();
             poll(
                 self.handle(),
                 vec.as_mut_ptr() as *mut RIORESULT,
@@ -253,11 +255,11 @@ impl AsyncIO for RIOCompletionQueue {
     }
     fn await_cmpl(&self) -> std::io::Result<()> {
         match self.inner().completion {
-            Completion::None=>unimplemented!(),
-            _=>()
+            Completion::None => unimplemented!(),
+            _ => (),
         }
         unsafe {
-            let notify = riofuncs::notify();
+            let notify = funcs::notify();
             let result = notify(self.handle());
             if result != 0 {
                 return Err(Error::from_raw_os_error(result));

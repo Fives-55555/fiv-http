@@ -1,26 +1,20 @@
-use std::io::Error;
-
-use windows::Win32::Foundation::HANDLE;
-
-macro_rules! io_err {
+macro_rules! io_err_res {
     ($err:expr) => {
         Err(std::io::Error::from_raw_os_error($err.code().0))
     };
 }
 
-// Good for long living or multi packet connections
-pub mod iocp;
+pub mod completion;
+
 pub mod rio;
 // Good for short living and easy stuff
 pub mod overlapped;
 
-pub mod event;
-
 pub mod socket;
-pub mod stream;
+
 mod basic;
 
-pub struct FutAsyncRead(pub HANDLE);
+pub const LISTEN_BACKLOG: i32 = 128;
 
 #[test]
 fn test() -> std::io::Result<()> {
@@ -51,17 +45,4 @@ fn test() -> std::io::Result<()> {
     // println!("{:?}", x.as_slice());
 
     return Ok(());
-}
-
-pub trait WinToIoError<T> {
-    fn conv_io_err(self)->std::io::Result<T>;
-}
-
-impl<T> WinToIoError<T> for windows_result::Result<T> {
-    fn conv_io_err(self)->std::io::Result<T> {
-        match self {
-            Ok(ok)=>Ok(ok),
-            Err(err)=>Err(Error::from_raw_os_error(err.code().0))
-        }
-    }
 }

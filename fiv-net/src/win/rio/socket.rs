@@ -7,8 +7,8 @@ use std::{
 use windows::Win32::{
     Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation},
     Networking::WinSock::{
-        AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, IN6_ADDR_0, SOCKADDR,
-        SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET, SOCKET, SOCKET_ERROR,
+        AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, IN6_ADDR_0, SOCKADDR, SOCKADDR_IN,
+        SOCKADDR_IN6, SOCKADDR_IN6_0, SOCKADDR_INET, SOCKET, SOCKET_ERROR,
         WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_REGISTERED_IO, WSAConnect, WSAEINVAL, WSAEPROTOTYPE,
         WSASocketW, closesocket,
     },
@@ -129,14 +129,8 @@ impl Drop for RIOSocket {
 
 #[test]
 fn test() {
-    use std::{
-        time::Duration,
-        net::ToSocketAddrs,
-    };
-    use windows::Win32::Networking::WinSock::{
-        SOCK_STREAM,
-        WSAStartup,
-    };
+    use std::{net::ToSocketAddrs, time::Duration};
+    use windows::Win32::Networking::WinSock::{SOCK_STREAM, WSAStartup};
 
     unsafe {
         let mut y: windows::Win32::Networking::WinSock::WSADATA = std::mem::zeroed();
